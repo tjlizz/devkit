@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
+import { AuthProvider } from "@/lib/auth-context";
 import { siteConfig } from "@/lib/site";
 import "./globals.css";
 
@@ -84,11 +85,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-screen bg-white font-sans text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
-        <div className="flex min-h-screen flex-col">
-          <Navbar />
-          <main className="flex-1">{children}</main>
-          <Footer />
-        </div>
+        <AuthProvider>
+          <div className="flex min-h-screen flex-col">
+            <Navbar />
+            <main className="flex-1">{children}</main>
+            <Footer />
+          </div>
+        </AuthProvider>
       </body>
     </html>
   );
