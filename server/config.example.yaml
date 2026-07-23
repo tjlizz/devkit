@@ -3,3 +3,14 @@ server:
 
 database:
   path: ./devkit.db
+
+auth:
+  jwt_secret: devkit-development-secret
+  jwt_expiry_hours: 24
+  activation_base_url: http://localhost:8080
+  smtp:
+    host: ""
+    port: 587
+    username: ""
+    password: ""
+    from: ""

@@ -30,7 +30,7 @@ func main() {
 	}
 	defer db.Close()
 
-	app := httpserver.New(cfg, router.New(logger), logger)
+	app := httpserver.New(cfg, router.New(logger, router.WithAuth(db, cfg.Auth)), logger)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
