@@ -16,7 +16,10 @@ export default tseslint.config(
       globals: globals.browser,
     },
     rules: {
+      'no-undef': 'off',
+      'vue/max-attributes-per-line': 'off',
       'vue/multi-word-component-names': 'off',
+      'vue/singleline-html-element-content-newline': 'off',
     },
   },
 )

@@ -67,6 +67,7 @@ lint-www: ## Run Next.js marketplace lint
 
 clean: clean-www ## Remove generated build and local database artifacts
 	rm -rf server/bin web/dist
+	rm -f web/*.tsbuildinfo
 	rm -f server/*.db server/*.db-shm server/*.db-wal
 	rm -f server/*.sqlite server/*.sqlite-shm server/*.sqlite-wal
 	rm -f server/*.sqlite3 server/*.sqlite3-shm server/*.sqlite3-wal

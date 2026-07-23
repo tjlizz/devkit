@@ -9,9 +9,9 @@ import {
   UsersIcon,
 } from "@/components/icons";
 import { CategorySection } from "@/components/category-section";
-import { DeveloperCard } from "@/components/developer-card";
+import DeveloperCard from "@/components/DeveloperCard";
 import { HeroSection } from "@/components/hero-section";
-import { ProductCard } from "@/components/product-card";
+import ProductCard from "@/components/ProductCard";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { JsonLd } from "@/lib/json-ld";
 import { createMetadata } from "@/lib/metadata";

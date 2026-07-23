@@ -1,57 +1,68 @@
-"use client";
-
 import Link from "next/link";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { MenuIcon, SearchIcon } from "@/components/icons";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Logo } from "@/components/ui/logo";
+
+const navLinks = [
+  { href: "/search", label: "Explore" },
+  { href: "/category/saas", label: "Products" },
+  { href: "/developers/mayachen", label: "Developers" },
+];
 
 export default function Navbar() {
-  const [query, setQuery] = useState("");
-  const router = useRouter();
-
-  function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (query.trim()) router.push(`/search?q=${encodeURIComponent(query.trim())}`);
-  }
-
   return (
-    <header className="sticky top-0 z-50 border-b border-surface-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
-      <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-6">
-        <Link href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight text-surface-900">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">D</span>
-          DevKit
-        </Link>
-
-        <div className="hidden items-center gap-6 md:flex">
-          <Link href="/" className="text-sm font-medium text-surface-600 transition-colors hover:text-surface-900">Explore</Link>
-          <Link href="/category/saas" className="text-sm font-medium text-surface-600 transition-colors hover:text-surface-900">Categories</Link>
-          <Link href="/search" className="text-sm font-medium text-surface-600 transition-colors hover:text-surface-900">Search</Link>
-        </div>
-
-        <form onSubmit={handleSearch} className="hidden flex-1 max-w-xs sm:block">
+    <header className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/85 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/85">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-5 sm:px-6 lg:px-8">
+        <Logo />
+        <nav className="hidden items-center gap-1 lg:flex" aria-label="Main navigation">
+          {navLinks.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <form
+          action="/search"
+          role="search"
+          className="ml-auto hidden max-w-xs flex-1 items-center md:flex"
+        >
+          <SearchIcon className="pointer-events-none z-10 mr-[-28px] ml-3 size-4 text-zinc-400" />
           <input
-            type="search"
+            name="q"
+            aria-label="Search products"
             placeholder="Search products..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full rounded-lg border border-surface-200 bg-surface-50 px-3 py-1.5 text-sm text-surface-900 placeholder-surface-400 outline-none transition-colors focus:border-brand-500 focus:bg-white"
+            className="h-9 w-full rounded-full border border-zinc-200 bg-zinc-50 pr-4 pl-9 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 focus:bg-white focus:ring-2 focus:ring-zinc-950/5 dark:border-white/10 dark:bg-white/5 dark:focus:border-white/20 dark:focus:bg-white/[0.07]"
           />
         </form>
-
-        <div className="flex items-center gap-3">
-          <Link
-            href="/search"
-            className="rounded-lg px-4 py-1.5 text-sm font-medium text-surface-600 transition-colors hover:bg-surface-100 hover:text-surface-900 sm:hidden"
-          >
-            Search
-          </Link>
-          <Link
-            href="/developers/mayachen"
-            className="rounded-lg bg-surface-900 px-4 py-1.5 text-sm font-medium text-white transition-all hover:bg-surface-800"
-          >
-            Become a Creator
-          </Link>
-        </div>
-      </nav>
+        <ThemeToggle />
+        <Link
+          href="/search"
+          className="hidden h-9 items-center rounded-full bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-zinc-800 hover:shadow-lg dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 sm:inline-flex"
+        >
+          Sell your product
+        </Link>
+        <details className="relative lg:hidden">
+          <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-full border border-zinc-200 dark:border-white/10">
+            <MenuIcon className="size-4" />
+            <span className="sr-only">Open menu</span>
+          </summary>
+          <nav className="absolute top-12 right-0 w-48 rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-zinc-900">
+            {navLinks.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </details>
+      </div>
     </header>
   );
 }

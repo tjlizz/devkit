@@ -1,46 +1,71 @@
 import Link from "next/link";
-import { siteConfig } from "@/lib/site";
+import { ArrowUpRightIcon } from "@/components/icons";
+import { Logo } from "@/components/ui/logo";
+import { categories } from "@/lib/mock/categories";
 
 export default function Footer() {
   return (
-    <footer className="border-t border-surface-200 bg-surface-50">
-      <div className="mx-auto max-w-7xl px-6 py-16">
-        <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <Link href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight text-surface-900">
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-600 text-xs font-bold text-white">D</span>
-              DevKit
-            </Link>
-            <p className="mt-3 text-sm leading-relaxed text-surface-500">
-              A curated marketplace for exceptional software built by independent developers.
+    <footer className="border-t border-zinc-200 bg-zinc-50/60 dark:border-white/10 dark:bg-white/[0.02]">
+      <div className="mx-auto max-w-7xl px-5 py-14 sm:px-6 lg:px-8 lg:py-20">
+        <div className="grid gap-12 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+          <div className="max-w-sm">
+            <Logo />
+            <p className="mt-5 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+              Exceptional software, directly from the developers who build it.
+              Discover useful products and support independent craft.
             </p>
           </div>
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-surface-500">Browse</h3>
+            <p className="text-sm font-semibold text-zinc-950 dark:text-white">Marketplace</p>
             <ul className="mt-4 space-y-3">
-              <li><Link href="/" className="text-sm text-surface-600 transition-colors hover:text-surface-900">Featured</Link></li>
-              <li><Link href="/category/saas" className="text-sm text-surface-600 transition-colors hover:text-surface-900">SaaS</Link></li>
-              <li><Link href="/category/developer-tools" className="text-sm text-surface-600 transition-colors hover:text-surface-900">Dev Tools</Link></li>
-              <li><Link href="/category/templates" className="text-sm text-surface-600 transition-colors hover:text-surface-900">Templates</Link></li>
+              {categories.slice(0, 4).map((category) => (
+                <li key={category.slug}>
+                  <Link
+                    href={`/category/${category.slug}`}
+                    className="text-sm text-zinc-600 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white"
+                  >
+                    {category.shortName}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-surface-500">For Creators</h3>
-            <ul className="mt-4 space-y-3">
-              <li><Link href="/developers/mayachen" className="text-sm text-surface-600 transition-colors hover:text-surface-900">Become a Creator</Link></li>
-              <li><Link href="/developers/mayachen" className="text-sm text-surface-600 transition-colors hover:text-surface-900">Developer Dashboard</Link></li>
+            <p className="text-sm font-semibold text-zinc-950 dark:text-white">Company</p>
+            <ul className="mt-4 space-y-3 text-sm text-zinc-600 dark:text-zinc-400">
+              {["About", "For developers", "Editorial", "Contact"].map((item) => (
+                <li key={item}>
+                  <Link href="/search" className="transition hover:text-zinc-950 dark:hover:text-white">
+                    {item}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-surface-500">Connect</h3>
+            <p className="text-sm font-semibold text-zinc-950 dark:text-white">Follow</p>
             <ul className="mt-4 space-y-3">
-              <li><a href={siteConfig.links.x} target="_blank" rel="noopener noreferrer" className="text-sm text-surface-600 transition-colors hover:text-surface-900">X (Twitter)</a></li>
-              <li><a href={siteConfig.links.github} target="_blank" rel="noopener noreferrer" className="text-sm text-surface-600 transition-colors hover:text-surface-900">GitHub</a></li>
+              {["X / Twitter", "GitHub", "Newsletter"].map((item) => (
+                <li key={item}>
+                  <Link
+                    href="/search"
+                    className="inline-flex items-center gap-1 text-sm text-zinc-600 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white"
+                  >
+                    {item}
+                    <ArrowUpRightIcon className="size-3.5" />
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
         </div>
-        <div className="mt-12 border-t border-surface-200 pt-8 text-center text-xs text-surface-400">
-          &copy; {new Date().getFullYear()} {siteConfig.name}. All rights reserved.
+        <div className="mt-14 flex flex-col gap-4 border-t border-zinc-200 pt-6 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between dark:border-white/10">
+          <p>© {new Date().getFullYear()} DevKit Marketplace. Made for people who build.</p>
+          <div className="flex gap-5">
+            <Link href="/search">Privacy</Link>
+            <Link href="/search">Terms</Link>
+            <Link href="/search">Seller policy</Link>
+          </div>
         </div>
       </div>
     </footer>
