@@ -12,9 +12,16 @@ describe('auth store', () => {
     const auth = useAuthStore()
 
     expect(auth.isAuthenticated).toBe(false)
-    auth.login('example-token')
+    auth.login({
+      token: 'example-token',
+      email: 'developer@example.com',
+      displayName: 'Developer',
+      avatarUrl: 'https://example.com/avatar.png',
+    })
     expect(auth.isAuthenticated).toBe(true)
+    expect(auth.user?.email).toBe('developer@example.com')
     auth.logout()
     expect(auth.isAuthenticated).toBe(false)
+    expect(auth.user).toBeNull()
   })
 })
