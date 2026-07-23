@@ -23,6 +23,8 @@ vendor/
 node_modules/
 dist/
 *.tsbuildinfo
+.next/
+out/
 
 # SQLite databases and sidecar files
 *.db

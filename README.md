@@ -1,7 +1,10 @@
 # DevKit
 
-DevKit is a modular monorepo with a Go HTTP API, a Vue 3 + TypeScript web
-application, and SQLite for local persistence.
+DevKit is a modular monorepo with three layers:
+
+- **server/** — Go HTTP API (admin backend) with SQLite persistence
+- **web/** — Vue 3 + TypeScript admin panel with Ant Design Vue
+- **www/** — Next.js public-facing developer marketplace (App Router, SSR, SEO)
 
 ## Repository layout
 
@@ -10,13 +13,16 @@ application, and SQLite for local persistence.
 ├── docs/       Architecture decision records
 ├── server/     Go 1.26 API and SQLite migrations
 ├── web/        Vue 3, Vite, TypeScript, and Ant Design Vue
-└── Makefile    Common development commands
+├── www/        Next.js developer marketplace (App Router, Tailwind CSS)
+├── AGENTS.md   Project specification and guidance
+├── Makefile    Common development commands
+└── .env.example
 ```
 
 ## Prerequisites
 
 - Go 1.26 or newer
-- Node.js 20.19+ or 22.12+ and npm
+- Node.js 20.19+ or 22.12+ and npm (www requires Node 20+)
 - `make`
 
 The SQLite driver is pure Go (`modernc.org/sqlite`), so CGO and a system SQLite
@@ -39,54 +45,68 @@ Environment variables override YAML values.
 
 ## Development
 
-Run the API and Vite development server together:
+### Marketplace (www — Next.js)
 
 ```sh
-make dev
+make dev-www
+# → http://localhost:3000
 ```
 
-- Web application: http://localhost:5173
-- API health endpoint: http://localhost:8080/api/v1/health
+### Admin Panel (web — Vue 3)
 
-The Vite server proxies `/api` requests to the Go server during local
-development.
+```sh
+make dev    # Vue dev server
+# → http://localhost:5173
+```
+
+### All services
+
+```sh
+make dev-all
+# → API: http://localhost:8080
+# → Admin: http://localhost:5173
+# → Marketplace: http://localhost:3000
+```
+
+The Vite server proxies `/api` requests to the Go server. The Next.js dev server
+can be configured via `www/.env`.
 
 ## Commands
 
 Run `make help` to list the available commands:
 
 ```sh
-make dev        # Start the API and web development servers
-make build      # Build the API binary and production web assets
-make test       # Run Go and frontend tests
-make lint       # Check Go formatting/vet and frontend lint
-make clean      # Remove generated build and local database artifacts
-```
-
-Backend and frontend commands can also be run independently:
-
-```sh
-cd server
-go test ./...
-go vet ./...
-go build ./...
-
-cd ../web
-npm run dev
-npm run lint
-npm run typecheck
-npm run build
+make dev        # Start Vue admin dev server
+make dev-www    # Start Next.js marketplace dev server
+make dev-all    # Start all development servers
+make build      # Build all applications
+make test       # Run all tests
+make lint       # Run all linters
+make clean      # Remove generated build artifacts
 ```
 
 ## Configuration
 
+### API (server)
+
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DEVKIT_CONFIG` | empty | Optional path to a YAML configuration file |
+| `DEVKIT_CONFIG` | empty | YAML configuration file path |
 | `DEVKIT_PORT` | `8080` | API listen port |
 | `DEVKIT_DB_PATH` | `./devkit.db` | SQLite database path |
+
+### Admin (web)
+
+| Variable | Default | Description |
+| --- | --- | --- |
 | `VITE_API_BASE_URL` | `/api/v1` | Browser-facing API base URL |
-| `VITE_API_PROXY_TARGET` | `http://localhost:8080` | Vite development proxy target |
+| `VITE_API_PROXY_TARGET` | `http://localhost:8080` | Vite dev proxy target |
+
+### Marketplace (www)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` | Site URL for SEO metadata |
 
 See [docs/architecture-decisions.md](docs/architecture-decisions.md) for the
 architecture decision record placeholder.
