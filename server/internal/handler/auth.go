@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"devkit/server/internal/config"
+	"devkit/server/internal/middleware"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -145,16 +146,6 @@ func (h *Auth) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := tx.ExecContext(
 		r.Context(),
-		"INSERT INTO developers(user_id, display_name) VALUES (?, ?)",
-		userID,
-		request.DisplayName,
-	); err != nil {
-		h.logger.ErrorContext(r.Context(), "insert registered developer", "error", err)
-		writeError(w, http.StatusInternalServerError, "could not register user")
-		return
-	}
-	if _, err := tx.ExecContext(
-		r.Context(),
 		`INSERT INTO user_verifications(token, user_id, expires_at) VALUES (?, ?, ?)`,
 		verificationToken,
 		userID,
@@ -252,6 +243,56 @@ func (h *Auth) Activate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
+}
+
+func (h *Auth) UpgradeToDeveloper(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var verifiedAt sql.NullTime
+	if err := h.db.QueryRowContext(
+		r.Context(),
+		"SELECT verified_at FROM users WHERE id = ?",
+		userID,
+	).Scan(&verifiedAt); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not verify user")
+		return
+	}
+	if !verifiedAt.Valid {
+		writeError(w, http.StatusForbidden, "email address is not verified")
+		return
+	}
+
+	var displayName string
+	if err := h.db.QueryRowContext(
+		r.Context(),
+		"SELECT display_name FROM users WHERE id = ?",
+		userID,
+	).Scan(&displayName); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not read user")
+		return
+	}
+
+	_, err := h.db.ExecContext(
+		r.Context(),
+		"INSERT INTO developers(user_id, display_name) VALUES (?, ?)",
+		userID,
+		displayName,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: developers.user_id") {
+			writeError(w, http.StatusConflict, "already a developer")
+			return
+		}
+		h.logger.ErrorContext(r.Context(), "upgrade to developer", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not upgrade to developer")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "upgraded"})
 }
 
 func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {

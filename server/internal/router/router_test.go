@@ -94,18 +94,6 @@ func TestRegisterActivateLoginAndAuthenticate(t *testing.T) {
 		t.Errorf("bcrypt cost = %d, want 10", cost)
 	}
 
-	var developerCount int
-	if err := db.QueryRow(
-		"SELECT COUNT(*) FROM developers WHERE user_id = ? AND display_name = ?",
-		userID,
-		"Dev Kit",
-	).Scan(&developerCount); err != nil {
-		t.Fatalf("query developer: %v", err)
-	}
-	if developerCount != 1 {
-		t.Fatalf("developer count = %d, want 1", developerCount)
-	}
-
 	response = performRequest(
 		app,
 		http.MethodPost,
