@@ -96,6 +96,7 @@ Current production deployment on this host:
 - Public Next.js build env: `/root/devkit/www/.env.production`
 - Go API service: `devkit-api.service`, running `/root/devkit/server/bin/devkit-server` on port `18080`
 - API environment: `/etc/devkit/server.env`
+- SMTP is configured in `/etc/devkit/server.env` with `DEVKIT_SMTP_HOST=send.ahasend.com`, `DEVKIT_SMTP_PORT=587`, `DEVKIT_SMTP_USERNAME`, `DEVKIT_SMTP_PASSWORD`, and `DEVKIT_SMTP_FROM`
 - SQLite database: `/var/lib/devkit/devkit.db`
 - Admin static files served by nginx from `/var/www/devkit/admin`
 

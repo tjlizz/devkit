@@ -10,8 +10,10 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/mail"
+	"net/smtp"
 	"net/url"
 	"strconv"
 	"strings"
@@ -163,10 +165,14 @@ func (h *Auth) Register(w http.ResponseWriter, r *http.Request) {
 
 	activationLink := strings.TrimRight(h.config.ActivationBaseURL, "/") +
 		"/api/v1/auth/activate?token=" + url.QueryEscape(verificationToken)
-	log.Printf("Activation link: %s", activationLink)
+	if err := h.sendActivationEmail(request.Email, request.DisplayName, activationLink); err != nil {
+		h.logger.ErrorContext(r.Context(), "send activation email", "email", request.Email, "error", err)
+		writeError(w, http.StatusInternalServerError, "registration created but activation email could not be sent")
+		return
+	}
 
 	writeJSON(w, http.StatusCreated, registerResponse{
-		Message: "registration successful; check the server log for the activation link",
+		Message: "registration successful; check your email for the activation link",
 		User: authUser{
 			ID:          userID,
 			Email:       request.Email,
@@ -174,6 +180,40 @@ func (h *Auth) Register(w http.ResponseWriter, r *http.Request) {
 			AvatarURL:   avatarURL,
 		},
 	})
+}
+
+func (h *Auth) sendActivationEmail(to string, displayName string, activationLink string) error {
+	smtpConfig := h.config.SMTP
+	if smtpConfig.Host == "" || smtpConfig.From == "" {
+		log.Printf("Activation link: %s", activationLink)
+		return nil
+	}
+	if !validEmail(smtpConfig.From) {
+		return fmt.Errorf("invalid SMTP from address")
+	}
+
+	subject := "Activate your DevKit account"
+	body := fmt.Sprintf(
+		"Hi %s,\r\n\r\nActivate your DevKit account with this link:\r\n%s\r\n\r\nThis link expires in 24 hours.\r\n",
+		displayName,
+		activationLink,
+	)
+	message := strings.Join([]string{
+		"From: " + smtpConfig.From,
+		"To: " + to,
+		"Subject: " + subject,
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=UTF-8",
+		"",
+		body,
+	}, "\r\n")
+
+	address := net.JoinHostPort(smtpConfig.Host, strconv.Itoa(smtpConfig.Port))
+	var auth smtp.Auth
+	if smtpConfig.Username != "" || smtpConfig.Password != "" {
+		auth = smtp.PlainAuth("", smtpConfig.Username, smtpConfig.Password, smtpConfig.Host)
+	}
+	return smtp.SendMail(address, auth, smtpConfig.From, []string{to}, []byte(message))
 }
 
 func (h *Auth) Activate(w http.ResponseWriter, r *http.Request) {
