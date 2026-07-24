@@ -2,7 +2,9 @@
 
 import { createContext, useContext, useCallback, useEffect, useState, type ReactNode } from "react"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
+// Empty by default: requests go same-origin to /api/... and Next.js rewrites
+// proxy them to the Go API (see next.config.ts), avoiding CORS entirely.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ""
 const TOKEN_KEY = "devkit.auth.token"
 const USER_KEY = "devkit.auth.user"
 

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c 'for /f \"usebackq eol=# tokens=1,* delims==\" %a in \\(\".env\"\\) do @if not \"%a\"==\"\" @echo %a=%b')",
+      "Bash(printf '@echo off\\\\r\\\\nfor /f \"usebackq eol=# tokens=1,* delims==\" %%%%a in \\(\".env\"\\) do if not \"%%%%a\"==\"\" echo %%%%a=%%%%b\\\\r\\\\n')",
+      "Bash(cmd /c _parsetest.bat)",
+      "Bash(rm _parsetest.bat)",
+      "Bash(cmd //c _parsetest.bat)",
+      "Bash(rm -f _parsetest.bat)",
+      "Bash(printf '@echo off\\\\r\\\\ncd /d \"D:\\\\\\\\3-work\\\\\\\\devkit\"\\\\r\\\\nfor /f \"usebackq eol=# tokens=1,* delims==\" %%%%a in \\(\".env\"\\) do if not \"%%%%a\"==\"\" echo %%%%a=%%%%b\\\\r\\\\n')",
+      "Bash(cmd //c \"D:\\\\\\\\3-work\\\\\\\\devkit\\\\\\\\_parsetest.bat\")",
+      "Bash(curl -v --ssl-reqd --user 'ufhOpLthOE:NP5h2zeR7xcMuV2LRLZ7MHll' smtp://end-us.ahasend.com:587)"
+    ]
+  }
+}
