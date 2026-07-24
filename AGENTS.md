@@ -85,6 +85,40 @@ Every page must be an independent SEO landing page:
 ## Phase 1
 Frontend-only with mock data. Clean architecture, scalable to production SaaS.
 
+## Deployment
+
+Current production deployment on this host:
+
+- Public marketplace: `http://devkit.280303.xyz`
+- Developer admin: `http://admin.devkit.280303.xyz`
+- Nginx vhost: `/etc/nginx/sites-available/devkit`, enabled via `/etc/nginx/sites-enabled/devkit`
+- Public Next.js service: `devkit-www.service`, running from `/root/devkit/www` on `127.0.0.1:13000`
+- Public Next.js build env: `/root/devkit/www/.env.production`
+- Go API service: `devkit-api.service`, running `/root/devkit/server/bin/devkit-server` on port `18080`
+- API environment: `/etc/devkit/server.env`
+- SQLite database: `/var/lib/devkit/devkit.db`
+- Admin static files served by nginx from `/var/www/devkit/admin`
+
+Update deployment after code changes:
+
+```sh
+cd /root/devkit
+make build
+cp -a web/dist/. /var/www/devkit/admin/
+systemctl restart devkit-api.service
+systemctl restart devkit-www.service
+/usr/sbin/nginx -t
+systemctl reload nginx
+```
+
+Nginx routing:
+
+- `devkit.280303.xyz` proxies all traffic to the Next.js service on `127.0.0.1:13000`.
+- `admin.devkit.280303.xyz` serves the Vue build from `/var/www/devkit/admin`.
+- `admin.devkit.280303.xyz/api/` proxies to the Go API on `127.0.0.1:18080`.
+
+Do not edit unrelated nginx server blocks when updating DevKit. Keep future DevKit nginx changes inside `/etc/nginx/sites-available/devkit`.
+
 ---
 
 ## Prompt (for reference when implementing)
