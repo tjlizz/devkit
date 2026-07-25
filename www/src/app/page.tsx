@@ -33,6 +33,8 @@ export const metadata: Metadata = createMetadata({
   ],
 });
 
+export const dynamic = "force-dynamic";
+
 const buyerBenefits = [
   "Products reviewed for quality and clarity",
   "Secure checkout with buyer protection",
