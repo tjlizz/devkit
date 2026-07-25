@@ -64,6 +64,12 @@ export default function Navbar() {
                 >
                   Become a developer
                 </Link>
+                <Link
+                  href="/change-password"
+                  className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+                >
+                  Change password
+                </Link>
                 <hr className="my-1 border-zinc-100 dark:border-white/10" />
                 <button
                   onClick={logout}
@@ -114,6 +120,12 @@ export default function Navbar() {
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
                   Become a developer
+                </Link>
+                <Link
+                  href="/change-password"
+                  className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+                >
+                  Change password
                 </Link>
                 <button
                   onClick={logout}

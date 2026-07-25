@@ -22,6 +22,14 @@ export interface ActivateResponse {
   status: 'activated'
 }
 
+export interface MessageResponse {
+  message: string
+}
+
+export interface StatusResponse {
+  status: string
+}
+
 export async function register(email: string, password: string, displayName: string) {
   const response = await apiClient.post<RegisterResponse>('/auth/register', {
     email,
@@ -42,6 +50,29 @@ export async function login(email: string, password: string) {
 export async function activate(token: string) {
   const response = await apiClient.get<ActivateResponse>('/auth/activate', {
     params: { token },
+  })
+  return response.data
+}
+
+export async function forgotPassword(email: string) {
+  const response = await apiClient.post<MessageResponse>('/auth/forgot-password', {
+    email,
+  })
+  return response.data
+}
+
+export async function resetPassword(token: string, newPassword: string) {
+  const response = await apiClient.post<StatusResponse>('/auth/reset-password', {
+    token,
+    newPassword,
+  })
+  return response.data
+}
+
+export async function changePassword(oldPassword: string, newPassword: string) {
+  const response = await apiClient.post<StatusResponse>('/auth/change-password', {
+    oldPassword,
+    newPassword,
   })
   return response.data
 }

@@ -37,6 +37,9 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
 		mux.HandleFunc("GET /api/v1/auth/activate", authHandler.Activate)
 		mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+		mux.HandleFunc("POST /api/v1/auth/forgot-password", authHandler.ForgotPassword)
+		mux.HandleFunc("POST /api/v1/auth/reset-password", authHandler.ResetPassword)
+		mux.Handle("POST /api/v1/auth/change-password", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ChangePassword)))
 		mux.Handle("POST /api/v1/auth/upgrade-to-developer", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.UpgradeToDeveloper)))
 	}
 

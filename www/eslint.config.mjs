@@ -1,5 +1,5 @@
 import { defineConfig, globalIgnores } from "eslint/config";
-import tseslint from "./node_modules/eslint-config-next/node_modules/typescript-eslint/dist/index.js";
+import tseslint from "typescript-eslint";
 
 export default defineConfig([
   globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),

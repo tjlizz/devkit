@@ -248,6 +248,230 @@ func TestActivateAndLogin(t *testing.T) {
 	}
 }
 
+func TestForgotAndResetPassword(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	userID := insertVerifiedUser(t, db, "dev@example.com", "old-password")
+
+	unknown := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/forgot-password",
+		`{"email":"missing@example.com"}`,
+	)
+	if unknown.Code != http.StatusOK {
+		t.Fatalf("unknown forgot status = %d, want %d; body = %s", unknown.Code, http.StatusOK, unknown.Body.String())
+	}
+
+	invalidEmail := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/forgot-password",
+		`{"email":"not-an-email"}`,
+	)
+	if invalidEmail.Code != http.StatusBadRequest {
+		t.Fatalf("invalid forgot status = %d, want %d", invalidEmail.Code, http.StatusBadRequest)
+	}
+
+	forgot := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/forgot-password",
+		`{"email":"DEV@example.com"}`,
+	)
+	if forgot.Code != http.StatusOK {
+		t.Fatalf("forgot status = %d, want %d; body = %s", forgot.Code, http.StatusOK, forgot.Body.String())
+	}
+	var token string
+	if err := db.QueryRow(
+		"SELECT token FROM password_resets WHERE user_id = ?",
+		userID,
+	).Scan(&token); err != nil {
+		t.Fatalf("query password reset token: %v", err)
+	}
+	if _, err := uuid.Parse(token); err != nil {
+		t.Fatalf("password reset token = %q, want UUID: %v", token, err)
+	}
+
+	shortPassword := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/reset-password",
+		`{"token":"`+token+`","newPassword":"short"}`,
+	)
+	if shortPassword.Code != http.StatusBadRequest {
+		t.Fatalf("short reset password status = %d, want %d", shortPassword.Code, http.StatusBadRequest)
+	}
+
+	reset := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/reset-password",
+		`{"token":"`+token+`","newPassword":"new-password"}`,
+	)
+	if reset.Code != http.StatusOK {
+		t.Fatalf("reset status = %d, want %d; body = %s", reset.Code, http.StatusOK, reset.Body.String())
+	}
+
+	var resetCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM password_resets WHERE token = ?", token).Scan(&resetCount); err != nil {
+		t.Fatalf("count reset token: %v", err)
+	}
+	if resetCount != 0 {
+		t.Fatalf("reset token count = %d, want 0", resetCount)
+	}
+
+	oldLogin := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/login",
+		`{"email":"dev@example.com","password":"old-password"}`,
+	)
+	if oldLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("old password login status = %d, want %d", oldLogin.Code, http.StatusUnauthorized)
+	}
+	newLogin := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/login",
+		`{"email":"dev@example.com","password":"new-password"}`,
+	)
+	if newLogin.Code != http.StatusOK {
+		t.Fatalf("new password login status = %d, want %d; body = %s", newLogin.Code, http.StatusOK, newLogin.Body.String())
+	}
+
+	reused := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/reset-password",
+		`{"token":"`+token+`","newPassword":"another-password"}`,
+	)
+	if reused.Code != http.StatusBadRequest {
+		t.Fatalf("reused token status = %d, want %d", reused.Code, http.StatusBadRequest)
+	}
+}
+
+func TestResetPasswordRejectsExpiredToken(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	userID := insertVerifiedUser(t, db, "dev@example.com", "old-password")
+	token := uuid.NewString()
+	if _, err := db.Exec(
+		"INSERT INTO password_resets(token, user_id, expires_at) VALUES (?, ?, datetime('now', '-1 hour'))",
+		token,
+		userID,
+	); err != nil {
+		t.Fatalf("insert expired password reset: %v", err)
+	}
+
+	response := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/reset-password",
+		`{"token":"`+token+`","newPassword":"new-password"}`,
+	)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expired reset status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
+func TestChangePasswordRequiresCurrentPassword(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	insertVerifiedUser(t, db, "dev@example.com", "old-password")
+
+	login := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/login",
+		`{"email":"dev@example.com","password":"old-password"}`,
+	)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want %d; body = %s", login.Code, http.StatusOK, login.Body.String())
+	}
+	var loginBody struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(login.Body).Decode(&loginBody); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+
+	unauthenticated := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/change-password",
+		`{"oldPassword":"old-password","newPassword":"new-password"}`,
+	)
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated change status = %d, want %d", unauthenticated.Code, http.StatusUnauthorized)
+	}
+
+	wrongCurrent := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/change-password",
+		`{"oldPassword":"wrong-password","newPassword":"new-password"}`,
+		loginBody.Token,
+	)
+	if wrongCurrent.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong current status = %d, want %d", wrongCurrent.Code, http.StatusUnauthorized)
+	}
+
+	shortPassword := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/change-password",
+		`{"oldPassword":"old-password","newPassword":"short"}`,
+		loginBody.Token,
+	)
+	if shortPassword.Code != http.StatusBadRequest {
+		t.Fatalf("short new password status = %d, want %d", shortPassword.Code, http.StatusBadRequest)
+	}
+
+	changed := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/change-password",
+		`{"oldPassword":"old-password","newPassword":"new-password"}`,
+		loginBody.Token,
+	)
+	if changed.Code != http.StatusOK {
+		t.Fatalf("change status = %d, want %d; body = %s", changed.Code, http.StatusOK, changed.Body.String())
+	}
+
+	oldLogin := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/login",
+		`{"email":"dev@example.com","password":"old-password"}`,
+	)
+	if oldLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("old password login status = %d, want %d", oldLogin.Code, http.StatusUnauthorized)
+	}
+	newLogin := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/login",
+		`{"email":"dev@example.com","password":"new-password"}`,
+	)
+	if newLogin.Code != http.StatusOK {
+		t.Fatalf("new password login status = %d, want %d; body = %s", newLogin.Code, http.StatusOK, newLogin.Body.String())
+	}
+}
+
 func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	t.Helper()
 	db, err := database.Open(":memory:", migrations.Files)
@@ -264,6 +488,34 @@ func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	return db, New(logger, WithAuth(db, cfg))
 }
 
+func insertVerifiedUser(t *testing.T, db *sql.DB, email string, password string) int64 {
+	t.Helper()
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	result, err := db.Exec(
+		`INSERT INTO users(email, password_hash, avatar_url, display_name, verified_at)
+		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		email,
+		string(passwordHash),
+		defaultTestAvatar(email),
+		"Developer",
+	)
+	if err != nil {
+		t.Fatalf("insert verified user: %v", err)
+	}
+	userID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("read user ID: %v", err)
+	}
+	return userID
+}
+
+func defaultTestAvatar(email string) string {
+	return "https://example.com/avatar/" + email
+}
+
 func performJSONRequest(
 	t *testing.T,
 	app http.Handler,
@@ -274,6 +526,23 @@ func performJSONRequest(
 	t.Helper()
 	request := httptest.NewRequest(method, target, bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	app.ServeHTTP(response, request)
+	return response
+}
+
+func performJSONRequestWithToken(
+	t *testing.T,
+	app http.Handler,
+	method string,
+	target string,
+	body string,
+	token string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(method, target, bytes.NewBufferString(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
 	app.ServeHTTP(response, request)
 	return response

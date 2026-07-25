@@ -2,7 +2,10 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { useAuthStore } from './stores/auth'
+
 const route = useRoute()
+const auth = useAuthStore()
 const selectedKeys = computed(() => [route.path])
 </script>
 
@@ -24,6 +27,9 @@ const selectedKeys = computed(() => [route.path])
         </a-menu-item>
         <a-menu-item key="/register">
           <RouterLink to="/register">Register</RouterLink>
+        </a-menu-item>
+        <a-menu-item v-if="auth.isAuthenticated" key="/change-password">
+          <RouterLink to="/change-password">Change Password</RouterLink>
         </a-menu-item>
       </a-menu>
     </a-layout-header>

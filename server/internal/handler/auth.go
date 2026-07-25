@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	maxRequestBodySize   = 1 << 20
-	verificationLifetime = 24 * time.Hour
+	maxRequestBodySize    = 1 << 20
+	verificationLifetime  = 24 * time.Hour
+	passwordResetLifetime = 1 * time.Hour
 )
 
 type Auth struct {
@@ -61,6 +62,20 @@ type registerResponse struct {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type forgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+type resetPasswordRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"newPassword"`
+}
+
+type changePasswordRequest struct {
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
 }
 
 type loginResponse struct {
@@ -197,6 +212,40 @@ func (h *Auth) sendActivationEmail(to string, displayName string, activationLink
 		"Hi %s,\r\n\r\nActivate your DevKit account with this link:\r\n%s\r\n\r\nThis link expires in 24 hours.\r\n",
 		displayName,
 		activationLink,
+	)
+	message := strings.Join([]string{
+		"From: " + smtpConfig.From,
+		"To: " + to,
+		"Subject: " + subject,
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=UTF-8",
+		"",
+		body,
+	}, "\r\n")
+
+	address := net.JoinHostPort(smtpConfig.Host, strconv.Itoa(smtpConfig.Port))
+	var auth smtp.Auth
+	if smtpConfig.Username != "" || smtpConfig.Password != "" {
+		auth = smtp.PlainAuth("", smtpConfig.Username, smtpConfig.Password, smtpConfig.Host)
+	}
+	return smtp.SendMail(address, auth, smtpConfig.From, []string{to}, []byte(message))
+}
+
+func (h *Auth) sendPasswordResetEmail(to string, displayName string, resetLink string) error {
+	smtpConfig := h.config.SMTP
+	if smtpConfig.Host == "" || smtpConfig.From == "" {
+		log.Printf("Password reset link: %s", resetLink)
+		return nil
+	}
+	if !validEmail(smtpConfig.From) {
+		return fmt.Errorf("invalid SMTP from address")
+	}
+
+	subject := "Reset your DevKit password"
+	body := fmt.Sprintf(
+		"Hi %s,\r\n\r\nReset your DevKit password with this link:\r\n%s\r\n\r\nThis link expires in 1 hour. If you did not request this, you can ignore this email.\r\n",
+		displayName,
+		resetLink,
 	)
 	message := strings.Join([]string{
 		"From: " + smtpConfig.From,
@@ -408,19 +457,238 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var request forgotPasswordRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	request.Email = strings.ToLower(strings.TrimSpace(request.Email))
+	if !validEmail(request.Email) {
+		writeError(w, http.StatusBadRequest, "valid email is required")
+		return
+	}
+
+	response := map[string]string{"message": "if the email is registered, a reset link has been sent"}
+	var user struct {
+		ID          int64
+		DisplayName string
+	}
+	err := h.db.QueryRowContext(
+		r.Context(),
+		"SELECT id, display_name FROM users WHERE email = ?",
+		request.Email,
+	).Scan(&user.ID, &user.DisplayName)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read password reset user", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not request password reset")
+		return
+	}
+
+	token := uuid.NewString()
+	expiresAt := h.now().UTC().Add(passwordResetLifetime)
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "begin password reset request", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not request password reset")
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(r.Context(), "DELETE FROM password_resets WHERE user_id = ?", user.ID); err != nil {
+		h.logger.ErrorContext(r.Context(), "delete existing password resets", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not request password reset")
+		return
+	}
+	if _, err := tx.ExecContext(
+		r.Context(),
+		`INSERT INTO password_resets(token, user_id, expires_at) VALUES (?, ?, ?)`,
+		token,
+		user.ID,
+		expiresAt,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "insert password reset token", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not request password reset")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), "commit password reset request", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not request password reset")
+		return
+	}
+
+	resetLink := strings.TrimRight(h.config.ActivationBaseURL, "/") +
+		"/reset-password?token=" + url.QueryEscape(token)
+	if err := h.sendPasswordResetEmail(request.Email, user.DisplayName, resetLink); err != nil {
+		h.logger.ErrorContext(r.Context(), "send password reset email", "email", request.Email, "error", err)
+		writeError(w, http.StatusInternalServerError, "could not send password reset email")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var request resetPasswordRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	request.Token = strings.TrimSpace(request.Token)
+	if _, err := uuid.Parse(request.Token); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid or expired reset token")
+		return
+	}
+	if err := validatePassword(request.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(request.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "hash reset password", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "begin password reset", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
+	defer tx.Rollback()
+
+	var userID int64
+	var expiresAt time.Time
+	err = tx.QueryRowContext(
+		r.Context(),
+		"SELECT user_id, expires_at FROM password_resets WHERE token = ?",
+		request.Token,
+	).Scan(&userID, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusBadRequest, "invalid or expired reset token")
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read password reset token", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
+	if !expiresAt.After(h.now().UTC()) {
+		if _, err := tx.ExecContext(r.Context(), "DELETE FROM password_resets WHERE token = ?", request.Token); err != nil {
+			h.logger.ErrorContext(r.Context(), "delete expired password reset token", "error", err)
+		}
+		if err := tx.Commit(); err != nil {
+			h.logger.ErrorContext(r.Context(), "commit expired password reset deletion", "error", err)
+		}
+		writeError(w, http.StatusBadRequest, "invalid or expired reset token")
+		return
+	}
+
+	if _, err := tx.ExecContext(
+		r.Context(),
+		"UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		string(passwordHash),
+		userID,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "update reset password", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
+	if _, err := tx.ExecContext(r.Context(), "DELETE FROM password_resets WHERE token = ?", request.Token); err != nil {
+		h.logger.ErrorContext(r.Context(), "consume password reset token", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), "commit password reset", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reset password")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password reset"})
+}
+
+func (h *Auth) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var request changePasswordRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if request.OldPassword == "" {
+		writeError(w, http.StatusBadRequest, "old password is required")
+		return
+	}
+	if err := validatePassword(request.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var passwordHash string
+	if err := h.db.QueryRowContext(
+		r.Context(),
+		"SELECT password_hash FROM users WHERE id = ?",
+		userID,
+	).Scan(&passwordHash); err != nil {
+		h.logger.ErrorContext(r.Context(), "read password for change", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not change password")
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(request.OldPassword)); err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid current password")
+		return
+	}
+
+	newPasswordHash, err := bcrypt.GenerateFromPassword([]byte(request.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "hash changed password", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not change password")
+		return
+	}
+	if _, err := h.db.ExecContext(
+		r.Context(),
+		"UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		string(newPasswordHash),
+		userID,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "update changed password", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not change password")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password changed"})
+}
+
 func validateRegistration(request registerRequest) error {
 	if !validEmail(request.Email) {
 		return errors.New("invalid email address")
 	}
-	if len(request.Password) < 8 {
-		return errors.New("password must be at least 8 characters")
-	}
-	if len(request.Password) > 72 {
-		return errors.New("password must not exceed 72 bytes")
+	if err := validatePassword(request.Password); err != nil {
+		return err
 	}
 	displayNameLength := utf8.RuneCountInString(request.DisplayName)
 	if displayNameLength < 1 || displayNameLength > 80 {
 		return errors.New("displayName must be between 1 and 80 characters")
+	}
+	return nil
+}
+
+func validatePassword(password string) error {
+	if len(password) < 8 {
+		return errors.New("password must be at least 8 characters")
+	}
+	if len(password) > 72 {
+		return errors.New("password must not exceed 72 bytes")
 	}
 	return nil
 }

@@ -22,6 +22,9 @@ interface AuthContextValue {
   isAuthenticated: boolean
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, displayName: string) => Promise<void>
+  forgotPassword: (email: string) => Promise<void>
+  resetPassword: (token: string, newPassword: string) => Promise<void>
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>
   logout: () => void
   upgradeToDeveloper: () => Promise<void>
 }
@@ -93,6 +96,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const forgotPassword = useCallback(async (email: string) => {
+    const res = await fetch(`${API_BASE}/api/v1/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Password reset request failed" }))
+      throw { status: res.status, message: body.error || "Password reset request failed" }
+    }
+  }, [])
+
+  const resetPassword = useCallback(async (token: string, newPassword: string) => {
+    const res = await fetch(`${API_BASE}/api/v1/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, newPassword }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Password reset failed" }))
+      throw { status: res.status, message: body.error || "Password reset failed" }
+    }
+  }, [])
+
+  const changePassword = useCallback(async (oldPassword: string, newPassword: string) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/auth/change-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body: JSON.stringify({ oldPassword, newPassword }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Password change failed" }))
+      throw { status: res.status, message: body.error || "Password change failed" }
+    }
+  }, [token])
+
   const logout = useCallback(() => {
     setToken(null)
     setUser(null)
@@ -123,6 +166,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: token !== null,
         login,
         register,
+        forgotPassword,
+        resetPassword,
+        changePassword,
         logout,
         upgradeToDeveloper,
       }}

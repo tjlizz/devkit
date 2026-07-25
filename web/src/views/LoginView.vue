@@ -65,6 +65,16 @@ async function submit() {
         <a-input-password v-model:value="form.password" autocomplete="current-password" />
       </a-form-item>
       <a-button block type="primary" html-type="submit" :loading="loading">Sign in</a-button>
+      <div class="form-footer">
+        <RouterLink to="/forgot-password">Forgot password?</RouterLink>
+      </div>
     </a-form>
   </a-card>
 </template>
+
+<style scoped>
+.form-footer {
+  margin-top: 16px;
+  text-align: center;
+}
+</style>
