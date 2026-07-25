@@ -39,8 +39,12 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
 		mux.HandleFunc("POST /api/v1/auth/forgot-password", authHandler.ForgotPassword)
 		mux.HandleFunc("POST /api/v1/auth/reset-password", authHandler.ResetPassword)
+		mux.Handle("GET /api/v1/auth/me", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.Me)))
+		mux.Handle("PATCH /api/v1/auth/me/avatar", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.UpdateAvatar)))
+		mux.Handle("DELETE /api/v1/auth/me/avatar", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ResetAvatar)))
 		mux.Handle("POST /api/v1/auth/change-password", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ChangePassword)))
 		mux.Handle("POST /api/v1/auth/upgrade-to-developer", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.UpgradeToDeveloper)))
+		mux.Handle("GET /api/v1/uploads/avatars/", http.StripPrefix("/api/v1/uploads/avatars/", http.FileServer(http.Dir(configured.auth.AvatarUploadDir))))
 	}
 
 	return middleware.Logging(logger)(middleware.Recovery(logger)(mux))

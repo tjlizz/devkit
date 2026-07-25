@@ -4,7 +4,7 @@ import { defineStore } from 'pinia'
 const tokenKey = 'devkit.auth.token'
 const userKey = 'devkit.auth.user'
 
-interface AuthUser {
+export interface AuthUser {
   email: string
   displayName: string
   avatarUrl: string
@@ -60,11 +60,19 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  function updateUser(userInfo: AuthUser) {
+    user.value = userInfo
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(userKey, JSON.stringify(userInfo))
+    }
+  }
+
   return {
     token,
     user,
     isAuthenticated,
     login,
     logout,
+    updateUser,
   }
 })

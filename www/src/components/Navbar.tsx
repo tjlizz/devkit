@@ -65,6 +65,12 @@ export default function Navbar() {
                   Become a developer
                 </Link>
                 <Link
+                  href="/profile-settings"
+                  className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+                >
+                  Profile settings
+                </Link>
+                <Link
                   href="/change-password"
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
@@ -120,6 +126,12 @@ export default function Navbar() {
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
                   Become a developer
+                </Link>
+                <Link
+                  href="/profile-settings"
+                  className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+                >
+                  Profile settings
                 </Link>
                 <Link
                   href="/change-password"

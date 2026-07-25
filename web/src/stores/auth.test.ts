@@ -20,6 +20,12 @@ describe('auth store', () => {
     })
     expect(auth.isAuthenticated).toBe(true)
     expect(auth.user?.email).toBe('developer@example.com')
+    auth.updateUser({
+      email: 'developer@example.com',
+      displayName: 'Developer',
+      avatarUrl: 'https://example.com/custom-avatar.png',
+    })
+    expect(auth.user?.avatarUrl).toBe('https://example.com/custom-avatar.png')
     auth.logout()
     expect(auth.isAuthenticated).toBe(false)
     expect(auth.user).toBeNull()

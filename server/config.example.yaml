@@ -8,6 +8,7 @@ auth:
   jwt_secret: devkit-development-secret
   jwt_expiry_hours: 24
   activation_base_url: http://localhost:8080
+  avatar_upload_dir: ./uploads/avatars
   smtp:
     host: ""
     port: 587

@@ -27,6 +27,9 @@ func TestDefault(t *testing.T) {
 	if cfg.Auth.JWTExpiryHours != 24 {
 		t.Errorf("JWT expiry = %d, want 24", cfg.Auth.JWTExpiryHours)
 	}
+	if cfg.Auth.AvatarUploadDir != "./uploads/avatars" {
+		t.Errorf("avatar upload dir = %q, want ./uploads/avatars", cfg.Auth.AvatarUploadDir)
+	}
 	if cfg.Auth.SMTP.Port != 587 {
 		t.Errorf("SMTP port = %d, want 587", cfg.Auth.SMTP.Port)
 	}
@@ -44,6 +47,7 @@ auth:
   jwt_secret: yaml-secret
   jwt_expiry_hours: 12
   activation_base_url: https://yaml.example
+  avatar_upload_dir: /tmp/yaml-avatars
   smtp:
     host: smtp.yaml.example
     port: 2525
@@ -55,6 +59,7 @@ auth:
 		t.Fatalf("write config: %v", err)
 	}
 	t.Setenv("DEVKIT_JWT_SECRET", "environment-secret")
+	t.Setenv("DEVKIT_AVATAR_UPLOAD_DIR", "/tmp/env-avatars")
 	t.Setenv("DEVKIT_SMTP_HOST", "smtp.environment.example")
 	t.Setenv("DEVKIT_SMTP_PORT", "465")
 
@@ -71,6 +76,9 @@ auth:
 	if cfg.Auth.ActivationBaseURL != "https://yaml.example" {
 		t.Errorf("activation URL = %q, want YAML value", cfg.Auth.ActivationBaseURL)
 	}
+	if cfg.Auth.AvatarUploadDir != "/tmp/env-avatars" {
+		t.Errorf("avatar upload dir = %q, want environment value", cfg.Auth.AvatarUploadDir)
+	}
 	if cfg.Auth.SMTP.Host != "smtp.environment.example" || cfg.Auth.SMTP.Port != 465 {
 		t.Errorf("SMTP endpoint = %s:%d, want environment values", cfg.Auth.SMTP.Host, cfg.Auth.SMTP.Port)
 	}
@@ -85,6 +93,7 @@ func clearAuthEnvironment(t *testing.T) {
 		"DEVKIT_JWT_SECRET",
 		"DEVKIT_JWT_EXPIRY_HOURS",
 		"DEVKIT_ACTIVATION_BASE_URL",
+		"DEVKIT_AVATAR_UPLOAD_DIR",
 		"DEVKIT_SMTP_HOST",
 		"DEVKIT_SMTP_PORT",
 		"DEVKIT_SMTP_USERNAME",

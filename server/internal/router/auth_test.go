@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -472,6 +473,125 @@ func TestChangePasswordRequiresCurrentPassword(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedUserCanUpdateAvatar(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	insertVerifiedUser(t, db, "dev@example.com", "old-password")
+
+	login := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/login",
+		`{"email":"dev@example.com","password":"old-password"}`,
+	)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want %d; body = %s", login.Code, http.StatusOK, login.Body.String())
+	}
+	var loginBody struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(login.Body).Decode(&loginBody); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+
+	unauthenticated := performMultipartAvatarRequest(
+		t,
+		app,
+		"",
+		validPNGAvatar(),
+	)
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated avatar status = %d, want %d", unauthenticated.Code, http.StatusUnauthorized)
+	}
+
+	invalid := performMultipartAvatarRequest(
+		t,
+		app,
+		loginBody.Token,
+		[]byte("not an image"),
+	)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid avatar status = %d, want %d; body = %s", invalid.Code, http.StatusBadRequest, invalid.Body.String())
+	}
+
+	custom := performMultipartAvatarRequest(
+		t,
+		app,
+		loginBody.Token,
+		validPNGAvatar(),
+	)
+	if custom.Code != http.StatusOK {
+		t.Fatalf("custom avatar status = %d, want %d; body = %s", custom.Code, http.StatusOK, custom.Body.String())
+	}
+	var customBody struct {
+		User struct {
+			AvatarURL string `json:"avatarUrl"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(custom.Body).Decode(&customBody); err != nil {
+		t.Fatalf("decode custom avatar: %v", err)
+	}
+	if !strings.HasPrefix(customBody.User.AvatarURL, "/api/v1/uploads/avatars/user-") ||
+		!strings.HasSuffix(customBody.User.AvatarURL, ".png") {
+		t.Fatalf("avatarUrl = %q, want uploaded avatar path", customBody.User.AvatarURL)
+	}
+
+	var storedAvatarURL string
+	if err := db.QueryRow("SELECT avatar_url FROM users WHERE email = ?", "dev@example.com").Scan(&storedAvatarURL); err != nil {
+		t.Fatalf("query avatar URL: %v", err)
+	}
+	if storedAvatarURL != customBody.User.AvatarURL {
+		t.Fatalf("stored avatarUrl = %q, want response URL", storedAvatarURL)
+	}
+
+	me := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodGet,
+		"/api/v1/auth/me",
+		``,
+		loginBody.Token,
+	)
+	if me.Code != http.StatusOK {
+		t.Fatalf("me status = %d, want %d; body = %s", me.Code, http.StatusOK, me.Body.String())
+	}
+	var meBody struct {
+		User struct {
+			Email     string `json:"email"`
+			AvatarURL string `json:"avatarUrl"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(me.Body).Decode(&meBody); err != nil {
+		t.Fatalf("decode me: %v", err)
+	}
+	if meBody.User.Email != "dev@example.com" || meBody.User.AvatarURL != customBody.User.AvatarURL {
+		t.Fatalf("me user = %+v, want current updated user", meBody.User)
+	}
+
+	reset := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodDelete,
+		"/api/v1/auth/me/avatar",
+		``,
+		loginBody.Token,
+	)
+	if reset.Code != http.StatusOK {
+		t.Fatalf("reset avatar status = %d, want %d; body = %s", reset.Code, http.StatusOK, reset.Body.String())
+	}
+	var resetBody struct {
+		User struct {
+			AvatarURL string `json:"avatarUrl"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(reset.Body).Decode(&resetBody); err != nil {
+		t.Fatalf("decode reset avatar: %v", err)
+	}
+	if !strings.HasPrefix(resetBody.User.AvatarURL, "https://www.gravatar.com/avatar/") {
+		t.Fatalf("reset avatarUrl = %q, want gravatar URL", resetBody.User.AvatarURL)
+	}
+}
+
 func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	t.Helper()
 	db, err := database.Open(":memory:", migrations.Files)
@@ -485,6 +605,7 @@ func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := config.Default().Auth
 	cfg.JWTSecret = testJWTSecret
+	cfg.AvatarUploadDir = t.TempDir()
 	return db, New(logger, WithAuth(db, cfg))
 }
 
@@ -546,4 +667,44 @@ func performJSONRequestWithToken(
 	response := httptest.NewRecorder()
 	app.ServeHTTP(response, request)
 	return response
+}
+
+func performMultipartAvatarRequest(
+	t *testing.T,
+	app http.Handler,
+	token string,
+	avatar []byte,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("avatar", "avatar.png")
+	if err != nil {
+		t.Fatalf("create avatar form file: %v", err)
+	}
+	if _, err := part.Write(avatar); err != nil {
+		t.Fatalf("write avatar form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/me/avatar", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response := httptest.NewRecorder()
+	app.ServeHTTP(response, request)
+	return response
+}
+
+func validPNGAvatar() []byte {
+	return []byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89,
+	}
 }

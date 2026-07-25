@@ -18,6 +18,10 @@ export interface LoginResponse {
   user: AuthUser
 }
 
+export interface UserResponse {
+  user: AuthUser
+}
+
 export interface ActivateResponse {
   status: 'activated'
 }
@@ -74,5 +78,21 @@ export async function changePassword(oldPassword: string, newPassword: string) {
     oldPassword,
     newPassword,
   })
+  return response.data
+}
+
+export async function updateAvatar(avatar: File) {
+  const body = new FormData()
+  body.append('avatar', avatar)
+  const response = await apiClient.patch<UserResponse>('/auth/me/avatar', body, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data
+}
+
+export async function resetAvatar() {
+  const response = await apiClient.delete<UserResponse>('/auth/me/avatar')
   return response.data
 }

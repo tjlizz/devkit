@@ -31,7 +31,14 @@ const selectedKeys = computed(() => [route.path])
         <a-menu-item v-if="auth.isAuthenticated" key="/change-password">
           <RouterLink to="/change-password">Change Password</RouterLink>
         </a-menu-item>
+        <a-menu-item v-if="auth.isAuthenticated" key="/profile-settings">
+          <RouterLink to="/profile-settings">Profile Settings</RouterLink>
+        </a-menu-item>
       </a-menu>
+      <div v-if="auth.isAuthenticated && auth.user" class="header-user">
+        <a-avatar :src="auth.user.avatarUrl" :size="32" />
+        <span>{{ auth.user.displayName }}</span>
+      </div>
     </a-layout-header>
     <a-layout-content class="app-content">
       <RouterView />

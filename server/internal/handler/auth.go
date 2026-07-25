@@ -15,6 +15,8 @@ import (
 	"net/mail"
 	"net/smtp"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,7 @@ import (
 
 const (
 	maxRequestBodySize    = 1 << 20
+	maxAvatarUploadSize   = 2 << 20
 	verificationLifetime  = 24 * time.Hour
 	passwordResetLifetime = 1 * time.Hour
 )
@@ -384,6 +387,128 @@ func (h *Auth) UpgradeToDeveloper(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "upgraded"})
 }
 
+func (h *Auth) Me(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	user, err := h.readAuthUser(w, r, userID)
+	if err != nil {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]authUser{"user": user})
+}
+
+func (h *Auth) UpdateAvatar(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxAvatarUploadSize+1024)
+	file, header, err := r.FormFile("avatar")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "avatar image file is required")
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxAvatarUploadSize+1))
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read avatar upload", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update avatar")
+		return
+	}
+	if len(data) == 0 {
+		writeError(w, http.StatusBadRequest, "avatar image file is required")
+		return
+	}
+	if len(data) > maxAvatarUploadSize {
+		writeError(w, http.StatusBadRequest, "avatar image must be 2MB or smaller")
+		return
+	}
+
+	extension, ok := avatarFileExtension(http.DetectContentType(data))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "avatar must be a JPEG, PNG, GIF, or WebP image")
+		return
+	}
+
+	if err := os.MkdirAll(h.config.AvatarUploadDir, 0755); err != nil {
+		h.logger.ErrorContext(r.Context(), "create avatar upload directory", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update avatar")
+		return
+	}
+
+	fileName := fmt.Sprintf("user-%d-%s%s", userID, uuid.NewString(), extension)
+	filePath := filepath.Join(h.config.AvatarUploadDir, fileName)
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		h.logger.ErrorContext(r.Context(), "write avatar upload", "name", header.Filename, "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update avatar")
+		return
+	}
+
+	avatarURL := "/api/v1/uploads/avatars/" + fileName
+	if _, err := h.db.ExecContext(
+		r.Context(),
+		"UPDATE users SET avatar_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		avatarURL,
+		userID,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "update avatar URL", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update avatar")
+		return
+	}
+
+	user, err := h.readAuthUser(w, r, userID)
+	if err != nil {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]authUser{"user": user})
+}
+
+func (h *Auth) ResetAvatar(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var email string
+	if err := h.db.QueryRowContext(
+		r.Context(),
+		"SELECT email FROM users WHERE id = ?",
+		userID,
+	).Scan(&email); err != nil {
+		h.logger.ErrorContext(r.Context(), "read user email for avatar reset", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reset avatar")
+		return
+	}
+
+	if _, err := h.db.ExecContext(
+		r.Context(),
+		"UPDATE users SET avatar_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		defaultAvatarURL(email),
+		userID,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "reset avatar URL", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reset avatar")
+		return
+	}
+
+	user, err := h.readAuthUser(w, r, userID)
+	if err != nil {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]authUser{"user": user})
+}
+
 func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	var request loginRequest
 	if err := decodeJSON(w, r, &request); err != nil {
@@ -455,6 +580,26 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: expiresAt.Format(time.RFC3339),
 		User:      user,
 	})
+}
+
+func (h *Auth) readAuthUser(w http.ResponseWriter, r *http.Request, userID int64) (authUser, error) {
+	var user authUser
+	if err := h.db.QueryRowContext(
+		r.Context(),
+		`SELECT id, email, display_name, avatar_url
+		 FROM users WHERE id = ?`,
+		userID,
+	).Scan(
+		&user.ID,
+		&user.Email,
+		&user.DisplayName,
+		&user.AvatarURL,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "read auth user", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read user")
+		return authUser{}, err
+	}
+	return user, nil
 }
 
 func (h *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -699,6 +844,21 @@ func validEmail(email string) bool {
 	}
 	address, err := mail.ParseAddress(email)
 	return err == nil && address.Address == email && strings.Contains(email, "@")
+}
+
+func avatarFileExtension(contentType string) (string, bool) {
+	switch contentType {
+	case "image/jpeg":
+		return ".jpg", true
+	case "image/png":
+		return ".png", true
+	case "image/gif":
+		return ".gif", true
+	case "image/webp":
+		return ".webp", true
+	default:
+		return "", false
+	}
 }
 
 func defaultAvatarURL(email string) string {

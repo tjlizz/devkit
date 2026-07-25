@@ -25,6 +25,8 @@ interface AuthContextValue {
   forgotPassword: (email: string) => Promise<void>
   resetPassword: (token: string, newPassword: string) => Promise<void>
   changePassword: (oldPassword: string, newPassword: string) => Promise<void>
+  updateAvatar: (avatar: File) => Promise<AuthUser>
+  resetAvatar: () => Promise<AuthUser>
   logout: () => void
   upgradeToDeveloper: () => Promise<void>
 }
@@ -136,6 +138,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [token])
 
+  const updateAvatar = useCallback(async (avatar: File) => {
+    const currentToken = token || getStoredToken()
+    const body = new FormData()
+    body.append("avatar", avatar)
+    const res = await fetch(`${API_BASE}/api/v1/auth/me/avatar`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Avatar update failed" }))
+      throw { status: res.status, message: body.error || "Avatar update failed" }
+    }
+    const data = await res.json()
+    setUser(data.user)
+    if (currentToken) {
+      setStored(currentToken, data.user)
+    }
+    return data.user as AuthUser
+  }, [token])
+
+  const resetAvatar = useCallback(async () => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/auth/me/avatar`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Avatar reset failed" }))
+      throw { status: res.status, message: body.error || "Avatar reset failed" }
+    }
+    const data = await res.json()
+    setUser(data.user)
+    if (currentToken) {
+      setStored(currentToken, data.user)
+    }
+    return data.user as AuthUser
+  }, [token])
+
   const logout = useCallback(() => {
     setToken(null)
     setUser(null)
@@ -169,6 +214,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         forgotPassword,
         resetPassword,
         changePassword,
+        updateAvatar,
+        resetAvatar,
         logout,
         upgradeToDeveloper,
       }}

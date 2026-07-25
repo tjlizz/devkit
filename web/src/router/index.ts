@@ -4,6 +4,7 @@ import HomeView from '../views/HomeView.vue'
 import ChangePasswordView from '../views/ChangePasswordView.vue'
 import ForgotPasswordView from '../views/ForgotPasswordView.vue'
 import LoginView from '../views/LoginView.vue'
+import ProfileSettingsView from '../views/ProfileSettingsView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import ResetPasswordView from '../views/ResetPasswordView.vue'
 
@@ -34,6 +35,11 @@ const router = createRouter({
       path: '/change-password',
       name: 'change-password',
       component: ChangePasswordView,
+    },
+    {
+      path: '/profile-settings',
+      name: 'profile-settings',
+      component: ProfileSettingsView,
     },
     {
       path: '/register',
