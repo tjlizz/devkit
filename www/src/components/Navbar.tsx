@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link";
+import type { MouseEvent } from "react";
 import { MenuIcon, SearchIcon } from "@/components/icons";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Logo } from "@/components/ui/logo";
@@ -14,6 +15,15 @@ const navLinks = [
 
 export default function Navbar() {
   const { isAuthenticated, user, logout } = useAuth();
+
+  function closeCurrentMenu(event: MouseEvent<HTMLElement>) {
+    event.currentTarget.closest("details")?.removeAttribute("open");
+  }
+
+  function handleLogout(event: MouseEvent<HTMLButtonElement>) {
+    closeCurrentMenu(event);
+    logout();
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/85 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/85">
@@ -60,25 +70,28 @@ export default function Navbar() {
               <nav className="absolute right-0 top-full mt-2 w-52 rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-zinc-900">
                 <Link
                   href="/become-developer"
+                  onClick={closeCurrentMenu}
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
                   Become a developer
                 </Link>
                 <Link
                   href="/profile-settings"
+                  onClick={closeCurrentMenu}
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
                   Profile settings
                 </Link>
                 <Link
                   href="/change-password"
+                  onClick={closeCurrentMenu}
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
                   Change password
                 </Link>
                 <hr className="my-1 border-zinc-100 dark:border-white/10" />
                 <button
-                  onClick={logout}
+                  onClick={handleLogout}
                   className="block w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-white/5"
                 >
                   Sign out
@@ -112,6 +125,7 @@ export default function Navbar() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={closeCurrentMenu}
                 className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
               >
                 {item.label}
@@ -123,24 +137,27 @@ export default function Navbar() {
                 <div className="px-3 py-2 text-sm font-medium text-zinc-500">{user?.displayName}</div>
                 <Link
                   href="/become-developer"
+                  onClick={closeCurrentMenu}
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
                   Become a developer
                 </Link>
                 <Link
                   href="/profile-settings"
+                  onClick={closeCurrentMenu}
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
                   Profile settings
                 </Link>
                 <Link
                   href="/change-password"
+                  onClick={closeCurrentMenu}
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
                 >
                   Change password
                 </Link>
                 <button
-                  onClick={logout}
+                  onClick={handleLogout}
                   className="block w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-white/5"
                 >
                   Sign out
@@ -148,8 +165,8 @@ export default function Navbar() {
               </>
             ) : (
               <>
-                <Link href="/login" className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5">Sign in</Link>
-                <Link href="/register" className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5">Get started</Link>
+                <Link href="/login" onClick={closeCurrentMenu} className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5">Sign in</Link>
+                <Link href="/register" onClick={closeCurrentMenu} className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5">Get started</Link>
               </>
             )}
           </nav>
