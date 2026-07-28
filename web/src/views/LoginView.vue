@@ -21,9 +21,7 @@ async function submit() {
     const response = await login(form.email, form.password)
     auth.login({
       token: response.token,
-      email: response.user.email,
-      displayName: response.user.displayName,
-      avatarUrl: response.user.avatarUrl,
+      ...response.user,
     })
     message.success('Signed in successfully')
     await router.push('/')

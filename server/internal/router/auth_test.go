@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -592,6 +593,239 @@ func TestAuthenticatedUserCanUpdateAvatar(t *testing.T) {
 	}
 }
 
+func TestDeveloperApplicationApprovalFlow(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	insertVerifiedUser(t, db, "dev@example.com", "old-password")
+	adminID := insertVerifiedUser(t, db, "admin@example.com", "old-password")
+	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", adminID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+
+	userToken := loginToken(t, app, "dev@example.com", "old-password")
+	adminToken := loginToken(t, app, "admin@example.com", "old-password")
+	applicationBody := `{"displayName":"Dev Studio","profileUrl":"https://example.com/dev","reason":"I build production developer tools for teams."}`
+
+	submitted := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/upgrade-to-developer",
+		applicationBody,
+		userToken,
+	)
+	if submitted.Code != http.StatusCreated {
+		t.Fatalf("submit application status = %d, want %d; body = %s", submitted.Code, http.StatusCreated, submitted.Body.String())
+	}
+	var submittedBody struct {
+		Application struct {
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
+		} `json:"application"`
+	}
+	if err := json.NewDecoder(submitted.Body).Decode(&submittedBody); err != nil {
+		t.Fatalf("decode submitted application: %v", err)
+	}
+	if submittedBody.Application.ID < 1 || submittedBody.Application.Status != "pending" {
+		t.Fatalf("submitted application = %+v, want pending application", submittedBody.Application)
+	}
+
+	var developerCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM developers WHERE user_id = (SELECT id FROM users WHERE email = ?)", "dev@example.com").Scan(&developerCount); err != nil {
+		t.Fatalf("count developers: %v", err)
+	}
+	if developerCount != 0 {
+		t.Fatalf("developer count after submit = %d, want 0", developerCount)
+	}
+
+	duplicate := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/upgrade-to-developer",
+		applicationBody,
+		userToken,
+	)
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate application status = %d, want %d", duplicate.Code, http.StatusConflict)
+	}
+
+	me := performJSONRequestWithToken(t, app, http.MethodGet, "/api/v1/auth/me", "", userToken)
+	if me.Code != http.StatusOK {
+		t.Fatalf("me status = %d, want %d; body = %s", me.Code, http.StatusOK, me.Body.String())
+	}
+	var meBody struct {
+		User struct {
+			Role                       string `json:"role"`
+			IsDeveloper                bool   `json:"isDeveloper"`
+			DeveloperApplicationStatus string `json:"developerApplicationStatus"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(me.Body).Decode(&meBody); err != nil {
+		t.Fatalf("decode me: %v", err)
+	}
+	if meBody.User.Role != "user" || meBody.User.IsDeveloper || meBody.User.DeveloperApplicationStatus != "pending" {
+		t.Fatalf("me user = %+v, want user with pending application", meBody.User)
+	}
+
+	nonAdminList := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodGet,
+		"/api/v1/admin/developer-applications",
+		"",
+		userToken,
+	)
+	if nonAdminList.Code != http.StatusForbidden {
+		t.Fatalf("non-admin list status = %d, want %d", nonAdminList.Code, http.StatusForbidden)
+	}
+
+	nonAdminApprove := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/developer-applications/"+strconv.FormatInt(submittedBody.Application.ID, 10)+"/approve",
+		`{"reviewNote":"Looks good."}`,
+		userToken,
+	)
+	if nonAdminApprove.Code != http.StatusForbidden {
+		t.Fatalf("non-admin approve status = %d, want %d", nonAdminApprove.Code, http.StatusForbidden)
+	}
+
+	list := performJSONRequestWithToken(t, app, http.MethodGet, "/api/v1/admin/developer-applications", "", adminToken)
+	if list.Code != http.StatusOK {
+		t.Fatalf("admin list status = %d, want %d; body = %s", list.Code, http.StatusOK, list.Body.String())
+	}
+	var listBody struct {
+		Applications []struct {
+			ID     int64  `json:"id"`
+			Email  string `json:"email"`
+			Status string `json:"status"`
+		} `json:"applications"`
+	}
+	if err := json.NewDecoder(list.Body).Decode(&listBody); err != nil {
+		t.Fatalf("decode admin list: %v", err)
+	}
+	if len(listBody.Applications) != 1 || listBody.Applications[0].Email != "dev@example.com" || listBody.Applications[0].Status != "pending" {
+		t.Fatalf("applications = %+v, want one pending dev@example.com application", listBody.Applications)
+	}
+
+	approved := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/developer-applications/"+strconv.FormatInt(submittedBody.Application.ID, 10)+"/approve",
+		`{"reviewNote":"Looks good."}`,
+		adminToken,
+	)
+	if approved.Code != http.StatusOK {
+		t.Fatalf("approve status = %d, want %d; body = %s", approved.Code, http.StatusOK, approved.Body.String())
+	}
+	var approvedBody struct {
+		Application struct {
+			Status     string `json:"status"`
+			ReviewNote string `json:"reviewNote"`
+		} `json:"application"`
+	}
+	if err := json.NewDecoder(approved.Body).Decode(&approvedBody); err != nil {
+		t.Fatalf("decode approved application: %v", err)
+	}
+	if approvedBody.Application.Status != "approved" || approvedBody.Application.ReviewNote != "Looks good." {
+		t.Fatalf("approved application = %+v, want approved with note", approvedBody.Application)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM developers WHERE display_name = ?", "Dev Studio").Scan(&developerCount); err != nil {
+		t.Fatalf("count approved developers: %v", err)
+	}
+	if developerCount != 1 {
+		t.Fatalf("developer count after approval = %d, want 1", developerCount)
+	}
+
+	reapprove := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/developer-applications/"+strconv.FormatInt(submittedBody.Application.ID, 10)+"/approve",
+		`{"reviewNote":"Again."}`,
+		adminToken,
+	)
+	if reapprove.Code != http.StatusConflict {
+		t.Fatalf("reapprove status = %d, want %d", reapprove.Code, http.StatusConflict)
+	}
+}
+
+func TestDeveloperApplicationRejectionFlow(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	insertVerifiedUser(t, db, "dev@example.com", "old-password")
+	adminID := insertVerifiedUser(t, db, "admin@example.com", "old-password")
+	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", adminID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+
+	userToken := loginToken(t, app, "dev@example.com", "old-password")
+	adminToken := loginToken(t, app, "admin@example.com", "old-password")
+	submitted := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/upgrade-to-developer",
+		`{"displayName":"Dev Studio","profileUrl":"","reason":"I build production developer tools for teams."}`,
+		userToken,
+	)
+	if submitted.Code != http.StatusCreated {
+		t.Fatalf("submit application status = %d, want %d; body = %s", submitted.Code, http.StatusCreated, submitted.Body.String())
+	}
+	var submittedBody struct {
+		Application struct {
+			ID int64 `json:"id"`
+		} `json:"application"`
+	}
+	if err := json.NewDecoder(submitted.Body).Decode(&submittedBody); err != nil {
+		t.Fatalf("decode submitted application: %v", err)
+	}
+
+	missingNote := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/developer-applications/"+strconv.FormatInt(submittedBody.Application.ID, 10)+"/reject",
+		`{"reviewNote":""}`,
+		adminToken,
+	)
+	if missingNote.Code != http.StatusBadRequest {
+		t.Fatalf("missing note rejection status = %d, want %d", missingNote.Code, http.StatusBadRequest)
+	}
+
+	rejected := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/developer-applications/"+strconv.FormatInt(submittedBody.Application.ID, 10)+"/reject",
+		`{"reviewNote":"Please add more production references."}`,
+		adminToken,
+	)
+	if rejected.Code != http.StatusOK {
+		t.Fatalf("reject status = %d, want %d; body = %s", rejected.Code, http.StatusOK, rejected.Body.String())
+	}
+	var status, reviewNote string
+	if err := db.QueryRow("SELECT status, review_note FROM developer_applications WHERE id = ?", submittedBody.Application.ID).Scan(&status, &reviewNote); err != nil {
+		t.Fatalf("query rejected application: %v", err)
+	}
+	if status != "rejected" || reviewNote != "Please add more production references." {
+		t.Fatalf("rejected application status=%q note=%q", status, reviewNote)
+	}
+
+	rereject := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/developer-applications/"+strconv.FormatInt(submittedBody.Application.ID, 10)+"/reject",
+		`{"reviewNote":"Again."}`,
+		adminToken,
+	)
+	if rereject.Code != http.StatusConflict {
+		t.Fatalf("rereject status = %d, want %d", rereject.Code, http.StatusConflict)
+	}
+}
+
 func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	t.Helper()
 	db, err := database.Open(":memory:", migrations.Files)
@@ -631,6 +865,27 @@ func insertVerifiedUser(t *testing.T, db *sql.DB, email string, password string)
 		t.Fatalf("read user ID: %v", err)
 	}
 	return userID
+}
+
+func loginToken(t *testing.T, app http.Handler, email string, password string) string {
+	t.Helper()
+	login := performJSONRequest(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/auth/login",
+		`{"email":"`+email+`","password":"`+password+`"}`,
+	)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want %d; body = %s", login.Code, http.StatusOK, login.Body.String())
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(login.Body).Decode(&body); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+	return body.Token
 }
 
 func defaultTestAvatar(email string) string {

@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import HomeView from '../views/HomeView.vue'
 import ChangePasswordView from '../views/ChangePasswordView.vue'
+import DeveloperApplicationsView from '../views/DeveloperApplicationsView.vue'
 import ForgotPasswordView from '../views/ForgotPasswordView.vue'
 import LoginView from '../views/LoginView.vue'
 import ProfileSettingsView from '../views/ProfileSettingsView.vue'
@@ -40,6 +41,11 @@ const router = createRouter({
       path: '/profile-settings',
       name: 'profile-settings',
       component: ProfileSettingsView,
+    },
+    {
+      path: '/admin/developer-applications',
+      name: 'admin-developer-applications',
+      component: DeveloperApplicationsView,
     },
     {
       path: '/register',

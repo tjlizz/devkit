@@ -14,16 +14,22 @@ describe('auth store', () => {
     expect(auth.isAuthenticated).toBe(false)
     auth.login({
       token: 'example-token',
+      id: 1,
       email: 'developer@example.com',
       displayName: 'Developer',
       avatarUrl: 'https://example.com/avatar.png',
+      role: 'admin',
+      isDeveloper: false,
     })
     expect(auth.isAuthenticated).toBe(true)
     expect(auth.user?.email).toBe('developer@example.com')
     auth.updateUser({
+      id: 1,
       email: 'developer@example.com',
       displayName: 'Developer',
       avatarUrl: 'https://example.com/custom-avatar.png',
+      role: 'admin',
+      isDeveloper: false,
     })
     expect(auth.user?.avatarUrl).toBe('https://example.com/custom-avatar.png')
     auth.logout()

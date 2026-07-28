@@ -45,10 +45,13 @@ type Auth struct {
 }
 
 type authUser struct {
-	ID          int64  `json:"id"`
-	Email       string `json:"email"`
-	DisplayName string `json:"displayName"`
-	AvatarURL   string `json:"avatarUrl"`
+	ID                         int64  `json:"id"`
+	Email                      string `json:"email"`
+	DisplayName                string `json:"displayName"`
+	AvatarURL                  string `json:"avatarUrl"`
+	Role                       string `json:"role"`
+	IsDeveloper                bool   `json:"isDeveloper"`
+	DeveloperApplicationStatus string `json:"developerApplicationStatus,omitempty"`
 }
 
 type registerRequest struct {
@@ -79,6 +82,31 @@ type resetPasswordRequest struct {
 type changePasswordRequest struct {
 	OldPassword string `json:"oldPassword"`
 	NewPassword string `json:"newPassword"`
+}
+
+type developerApplicationRequest struct {
+	DisplayName string `json:"displayName"`
+	ProfileURL  string `json:"profileUrl"`
+	Reason      string `json:"reason"`
+}
+
+type developerApplication struct {
+	ID          int64  `json:"id"`
+	UserID      int64  `json:"userId"`
+	Email       string `json:"email,omitempty"`
+	DisplayName string `json:"displayName"`
+	ProfileURL  string `json:"profileUrl"`
+	Reason      string `json:"reason"`
+	Status      string `json:"status"`
+	ReviewNote  string `json:"reviewNote"`
+	ReviewedBy  *int64 `json:"reviewedBy,omitempty"`
+	ReviewedAt  string `json:"reviewedAt,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+type developerApplicationReviewRequest struct {
+	ReviewNote string `json:"reviewNote"`
 }
 
 type loginResponse struct {
@@ -196,6 +224,7 @@ func (h *Auth) Register(w http.ResponseWriter, r *http.Request) {
 			Email:       request.Email,
 			DisplayName: request.DisplayName,
 			AvatarURL:   avatarURL,
+			Role:        "user",
 		},
 	})
 }
@@ -344,6 +373,19 @@ func (h *Auth) UpgradeToDeveloper(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var request developerApplicationRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	request.DisplayName = strings.TrimSpace(request.DisplayName)
+	request.ProfileURL = strings.TrimSpace(request.ProfileURL)
+	request.Reason = strings.TrimSpace(request.Reason)
+	if err := validateDeveloperApplication(request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	var verifiedAt sql.NullTime
 	if err := h.db.QueryRowContext(
 		r.Context(),
@@ -358,33 +400,290 @@ func (h *Auth) UpgradeToDeveloper(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var displayName string
-	if err := h.db.QueryRowContext(
+	var developerID int64
+	err := h.db.QueryRowContext(
 		r.Context(),
-		"SELECT display_name FROM users WHERE id = ?",
+		"SELECT id FROM developers WHERE user_id = ?",
 		userID,
-	).Scan(&displayName); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not read user")
+	).Scan(&developerID)
+	if err == nil {
+		writeError(w, http.StatusConflict, "already a developer")
+		return
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		h.logger.ErrorContext(r.Context(), "check existing developer", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not submit developer application")
 		return
 	}
 
-	_, err := h.db.ExecContext(
+	var existingStatus string
+	err = h.db.QueryRowContext(
 		r.Context(),
-		"INSERT INTO developers(user_id, display_name) VALUES (?, ?)",
+		`SELECT status FROM developer_applications
+		 WHERE user_id = ?
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT 1`,
 		userID,
-		displayName,
+	).Scan(&existingStatus)
+	if err == nil && (existingStatus == "pending" || existingStatus == "approved") {
+		writeError(w, http.StatusConflict, "developer application is "+existingStatus)
+		return
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		h.logger.ErrorContext(r.Context(), "read existing developer application", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not submit developer application")
+		return
+	}
+
+	application, err := h.insertDeveloperApplication(r, userID, request)
+	if err != nil {
+		if strings.Contains(err.Error(), "idx_developer_applications_pending_user") ||
+			strings.Contains(err.Error(), "UNIQUE constraint failed: developer_applications.user_id") {
+			writeError(w, http.StatusConflict, "developer application is pending")
+			return
+		}
+		h.logger.ErrorContext(r.Context(), "submit developer application", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not submit developer application")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]developerApplication{"application": application})
+}
+
+func (h *Auth) insertDeveloperApplication(r *http.Request, userID int64, request developerApplicationRequest) (developerApplication, error) {
+	result, err := h.db.ExecContext(
+		r.Context(),
+		`INSERT INTO developer_applications(user_id, display_name, profile_url, reason)
+		 VALUES (?, ?, ?, ?)`,
+		userID,
+		request.DisplayName,
+		request.ProfileURL,
+		request.Reason,
 	)
 	if err != nil {
+		return developerApplication{}, err
+	}
+	applicationID, err := result.LastInsertId()
+	if err != nil {
+		return developerApplication{}, err
+	}
+	return h.readDeveloperApplication(r, applicationID, false)
+}
+
+func (h *Auth) MyDeveloperApplication(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	application, err := h.readLatestDeveloperApplicationForUser(r, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusOK, map[string]any{"application": nil})
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read developer application", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read developer application")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]developerApplication{"application": application})
+}
+
+func (h *Auth) ListDeveloperApplications(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	rows, err := h.db.QueryContext(
+		r.Context(),
+		`SELECT da.id, da.user_id, u.email, da.display_name, da.profile_url, da.reason,
+		        da.status, da.review_note, da.reviewed_by, da.reviewed_at,
+		        da.created_at, da.updated_at
+		 FROM developer_applications da
+		 JOIN users u ON u.id = da.user_id
+		 WHERE da.status = 'pending'
+		 ORDER BY da.created_at ASC, da.id ASC`,
+	)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "list developer applications", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not list developer applications")
+		return
+	}
+	defer rows.Close()
+
+	applications := make([]developerApplication, 0)
+	for rows.Next() {
+		application, err := scanDeveloperApplication(rows, true)
+		if err != nil {
+			h.logger.ErrorContext(r.Context(), "scan developer application", "error", err)
+			writeError(w, http.StatusInternalServerError, "could not list developer applications")
+			return
+		}
+		applications = append(applications, application)
+	}
+	if err := rows.Err(); err != nil {
+		h.logger.ErrorContext(r.Context(), "iterate developer applications", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not list developer applications")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string][]developerApplication{"applications": applications})
+}
+
+func (h *Auth) ApproveDeveloperApplication(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.requireAdminID(w, r)
+	if !ok {
+		return
+	}
+	applicationID, ok := applicationIDFromPath(w, r)
+	if !ok {
+		return
+	}
+
+	var request developerApplicationReviewRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	request.ReviewNote = strings.TrimSpace(request.ReviewNote)
+	if utf8.RuneCountInString(request.ReviewNote) > 500 {
+		writeError(w, http.StatusBadRequest, "reviewNote must not exceed 500 characters")
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "begin developer application approval", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not approve developer application")
+		return
+	}
+	defer tx.Rollback()
+
+	application, err := readDeveloperApplicationTx(r, tx, applicationID, false)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "developer application not found")
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read developer application for approval", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not approve developer application")
+		return
+	}
+	if application.Status != "pending" {
+		writeError(w, http.StatusConflict, "developer application is already "+application.Status)
+		return
+	}
+
+	if _, err := tx.ExecContext(
+		r.Context(),
+		`INSERT INTO developers(user_id, display_name) VALUES (?, ?)`,
+		application.UserID,
+		application.DisplayName,
+	); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: developers.user_id") {
 			writeError(w, http.StatusConflict, "already a developer")
 			return
 		}
-		h.logger.ErrorContext(r.Context(), "upgrade to developer", "error", err)
-		writeError(w, http.StatusInternalServerError, "could not upgrade to developer")
+		h.logger.ErrorContext(r.Context(), "create approved developer", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not approve developer application")
+		return
+	}
+	if _, err := tx.ExecContext(
+		r.Context(),
+		`UPDATE developer_applications
+		 SET status = 'approved', review_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP,
+		     updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?`,
+		request.ReviewNote,
+		adminID,
+		applicationID,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "mark developer application approved", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not approve developer application")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), "commit developer application approval", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not approve developer application")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]string{"status": "upgraded"})
+	application, err = h.readDeveloperApplication(r, applicationID, false)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read approved developer application", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not approve developer application")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]developerApplication{"application": application})
+}
+
+func (h *Auth) RejectDeveloperApplication(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.requireAdminID(w, r)
+	if !ok {
+		return
+	}
+	applicationID, ok := applicationIDFromPath(w, r)
+	if !ok {
+		return
+	}
+
+	var request developerApplicationReviewRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	request.ReviewNote = strings.TrimSpace(request.ReviewNote)
+	if request.ReviewNote == "" {
+		writeError(w, http.StatusBadRequest, "reviewNote is required")
+		return
+	}
+	if utf8.RuneCountInString(request.ReviewNote) > 500 {
+		writeError(w, http.StatusBadRequest, "reviewNote must not exceed 500 characters")
+		return
+	}
+
+	result, err := h.db.ExecContext(
+		r.Context(),
+		`UPDATE developer_applications
+		 SET status = 'rejected', review_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP,
+		     updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND status = 'pending'`,
+		request.ReviewNote,
+		adminID,
+		applicationID,
+	)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "reject developer application", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reject developer application")
+		return
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read rejected developer application rows", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reject developer application")
+		return
+	}
+	if affected == 0 {
+		application, readErr := h.readDeveloperApplication(r, applicationID, false)
+		if errors.Is(readErr, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "developer application not found")
+			return
+		}
+		if readErr != nil {
+			h.logger.ErrorContext(r.Context(), "read rejected developer application conflict", "error", readErr)
+			writeError(w, http.StatusInternalServerError, "could not reject developer application")
+			return
+		}
+		writeError(w, http.StatusConflict, "developer application is already "+application.Status)
+		return
+	}
+
+	application, err := h.readDeveloperApplication(r, applicationID, false)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read rejected developer application", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not reject developer application")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]developerApplication{"application": application})
 }
 
 func (h *Auth) Me(w http.ResponseWriter, r *http.Request) {
@@ -554,6 +853,10 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "email address is not verified")
 		return
 	}
+	user, err = h.readAuthUser(w, r, user.ID)
+	if err != nil {
+		return
+	}
 
 	issuedAt := h.now().UTC()
 	expiresAt := issuedAt.Add(time.Duration(h.config.JWTExpiryHours) * time.Hour)
@@ -584,22 +887,194 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 
 func (h *Auth) readAuthUser(w http.ResponseWriter, r *http.Request, userID int64) (authUser, error) {
 	var user authUser
+	var developerID sql.NullInt64
+	var applicationStatus sql.NullString
 	if err := h.db.QueryRowContext(
 		r.Context(),
-		`SELECT id, email, display_name, avatar_url
-		 FROM users WHERE id = ?`,
+		`SELECT u.id, u.email, u.display_name, u.avatar_url, u.role,
+		        d.id,
+		        (
+		            SELECT da.status
+		            FROM developer_applications da
+		            WHERE da.user_id = u.id
+		            ORDER BY da.created_at DESC, da.id DESC
+		            LIMIT 1
+		        )
+		 FROM users u
+		 LEFT JOIN developers d ON d.user_id = u.id
+		 WHERE u.id = ?`,
 		userID,
 	).Scan(
 		&user.ID,
 		&user.Email,
 		&user.DisplayName,
 		&user.AvatarURL,
+		&user.Role,
+		&developerID,
+		&applicationStatus,
 	); err != nil {
 		h.logger.ErrorContext(r.Context(), "read auth user", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not read user")
 		return authUser{}, err
 	}
+	user.IsDeveloper = developerID.Valid
+	if applicationStatus.Valid {
+		user.DeveloperApplicationStatus = applicationStatus.String
+	}
 	return user, nil
+}
+
+func (h *Auth) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	_, ok := h.requireAdminID(w, r)
+	return ok
+}
+
+func (h *Auth) requireAdminID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return 0, false
+	}
+	var role string
+	if err := h.db.QueryRowContext(r.Context(), "SELECT role FROM users WHERE id = ?", userID).Scan(&role); err != nil {
+		h.logger.ErrorContext(r.Context(), "read admin role", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not verify admin access")
+		return 0, false
+	}
+	if role != "admin" {
+		writeError(w, http.StatusForbidden, "admin access required")
+		return 0, false
+	}
+	return userID, true
+}
+
+func applicationIDFromPath(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	applicationID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || applicationID < 1 {
+		writeError(w, http.StatusBadRequest, "invalid developer application id")
+		return 0, false
+	}
+	return applicationID, true
+}
+
+func (h *Auth) readLatestDeveloperApplicationForUser(r *http.Request, userID int64) (developerApplication, error) {
+	row := h.db.QueryRowContext(
+		r.Context(),
+		`SELECT id, user_id, display_name, profile_url, reason, status, review_note,
+		        reviewed_by, reviewed_at, created_at, updated_at
+		 FROM developer_applications
+		 WHERE user_id = ?
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT 1`,
+		userID,
+	)
+	return scanDeveloperApplication(row, false)
+}
+
+func (h *Auth) readDeveloperApplication(r *http.Request, applicationID int64, includeEmail bool) (developerApplication, error) {
+	if includeEmail {
+		row := h.db.QueryRowContext(
+			r.Context(),
+			`SELECT da.id, da.user_id, u.email, da.display_name, da.profile_url, da.reason,
+			        da.status, da.review_note, da.reviewed_by, da.reviewed_at,
+			        da.created_at, da.updated_at
+			 FROM developer_applications da
+			 JOIN users u ON u.id = da.user_id
+			 WHERE da.id = ?`,
+			applicationID,
+		)
+		return scanDeveloperApplication(row, true)
+	}
+	row := h.db.QueryRowContext(
+		r.Context(),
+		`SELECT id, user_id, display_name, profile_url, reason, status, review_note,
+		        reviewed_by, reviewed_at, created_at, updated_at
+		 FROM developer_applications
+		 WHERE id = ?`,
+		applicationID,
+	)
+	return scanDeveloperApplication(row, false)
+}
+
+func readDeveloperApplicationTx(r *http.Request, tx *sql.Tx, applicationID int64, includeEmail bool) (developerApplication, error) {
+	if includeEmail {
+		row := tx.QueryRowContext(
+			r.Context(),
+			`SELECT da.id, da.user_id, u.email, da.display_name, da.profile_url, da.reason,
+			        da.status, da.review_note, da.reviewed_by, da.reviewed_at,
+			        da.created_at, da.updated_at
+			 FROM developer_applications da
+			 JOIN users u ON u.id = da.user_id
+			 WHERE da.id = ?`,
+			applicationID,
+		)
+		return scanDeveloperApplication(row, true)
+	}
+	row := tx.QueryRowContext(
+		r.Context(),
+		`SELECT id, user_id, display_name, profile_url, reason, status, review_note,
+		        reviewed_by, reviewed_at, created_at, updated_at
+		 FROM developer_applications
+		 WHERE id = ?`,
+		applicationID,
+	)
+	return scanDeveloperApplication(row, false)
+}
+
+type developerApplicationScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanDeveloperApplication(scanner developerApplicationScanner, includeEmail bool) (developerApplication, error) {
+	var application developerApplication
+	var reviewedBy sql.NullInt64
+	var reviewedAt sql.NullTime
+	var createdAt time.Time
+	var updatedAt time.Time
+	var err error
+	if includeEmail {
+		err = scanner.Scan(
+			&application.ID,
+			&application.UserID,
+			&application.Email,
+			&application.DisplayName,
+			&application.ProfileURL,
+			&application.Reason,
+			&application.Status,
+			&application.ReviewNote,
+			&reviewedBy,
+			&reviewedAt,
+			&createdAt,
+			&updatedAt,
+		)
+	} else {
+		err = scanner.Scan(
+			&application.ID,
+			&application.UserID,
+			&application.DisplayName,
+			&application.ProfileURL,
+			&application.Reason,
+			&application.Status,
+			&application.ReviewNote,
+			&reviewedBy,
+			&reviewedAt,
+			&createdAt,
+			&updatedAt,
+		)
+	}
+	if err != nil {
+		return developerApplication{}, err
+	}
+	if reviewedBy.Valid {
+		value := reviewedBy.Int64
+		application.ReviewedBy = &value
+	}
+	if reviewedAt.Valid {
+		application.ReviewedAt = reviewedAt.Time.UTC().Format(time.RFC3339)
+	}
+	application.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+	application.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
+	return application, nil
 }
 
 func (h *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -824,6 +1299,28 @@ func validateRegistration(request registerRequest) error {
 	displayNameLength := utf8.RuneCountInString(request.DisplayName)
 	if displayNameLength < 1 || displayNameLength > 80 {
 		return errors.New("displayName must be between 1 and 80 characters")
+	}
+	return nil
+}
+
+func validateDeveloperApplication(request developerApplicationRequest) error {
+	displayNameLength := utf8.RuneCountInString(request.DisplayName)
+	if displayNameLength < 1 || displayNameLength > 80 {
+		return errors.New("displayName must be between 1 and 80 characters")
+	}
+	if request.ProfileURL != "" {
+		parsed, err := url.ParseRequestURI(request.ProfileURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return errors.New("profileUrl must be a valid http or https URL")
+		}
+		if len(request.ProfileURL) > 300 {
+			return errors.New("profileUrl must not exceed 300 characters")
+		}
+	}
+	reasonLength := utf8.RuneCountInString(request.Reason)
+	if reasonLength < 20 || reasonLength > 1200 {
+		return errors.New("reason must be between 20 and 1200 characters")
 	}
 	return nil
 }

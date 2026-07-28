@@ -13,6 +13,9 @@ export interface AuthUser {
   email: string
   displayName: string
   avatarUrl: string
+  role: "user" | "admin"
+  isDeveloper: boolean
+  developerApplicationStatus?: "pending" | "approved" | "rejected"
 }
 
 interface AuthContextValue {
@@ -28,7 +31,8 @@ interface AuthContextValue {
   updateAvatar: (avatar: File) => Promise<AuthUser>
   resetAvatar: () => Promise<AuthUser>
   logout: () => void
-  upgradeToDeveloper: () => Promise<void>
+  refreshUser: () => Promise<AuthUser>
+  upgradeToDeveloper: (payload: { displayName: string; profileUrl: string; reason: string }) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -187,7 +191,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearStored()
   }, [])
 
-  const upgradeToDeveloper = useCallback(async () => {
+  const refreshUser = useCallback(async () => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not refresh user" }))
+      throw { status: res.status, message: body.error || "Could not refresh user" }
+    }
+    const data = await res.json()
+    setUser(data.user)
+    if (currentToken) {
+      setStored(currentToken, data.user)
+    }
+    return data.user as AuthUser
+  }, [token])
+
+  const upgradeToDeveloper = useCallback(async (payload: { displayName: string; profileUrl: string; reason: string }) => {
     const currentToken = token || getStoredToken()
     const res = await fetch(`${API_BASE}/api/v1/auth/upgrade-to-developer`, {
       method: "POST",
@@ -195,12 +218,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${currentToken}`,
       },
+      body: JSON.stringify(payload),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: "Upgrade failed" }))
       throw { status: res.status, message: body.error || "Upgrade failed" }
     }
-  }, [token])
+    await refreshUser()
+  }, [refreshUser, token])
 
   return (
     <AuthContext.Provider
@@ -217,6 +242,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updateAvatar,
         resetAvatar,
         logout,
+        refreshUser,
         upgradeToDeveloper,
       }}
     >

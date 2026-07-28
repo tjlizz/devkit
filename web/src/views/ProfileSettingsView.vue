@@ -55,11 +55,7 @@ async function submit() {
   loading.value = true
   try {
     const response = await updateAvatar(avatarFile.value)
-    auth.updateUser({
-      email: response.user.email,
-      displayName: response.user.displayName,
-      avatarUrl: response.user.avatarUrl,
-    })
+    auth.updateUser(response.user)
     avatarFile.value = null
     message.success('Avatar updated successfully')
   } catch (error) {
@@ -82,11 +78,7 @@ async function resetToDefault() {
   resetting.value = true
   try {
     const response = await resetAvatar()
-    auth.updateUser({
-      email: response.user.email,
-      displayName: response.user.displayName,
-      avatarUrl: response.user.avatarUrl,
-    })
+    auth.updateUser(response.user)
     avatarFile.value = null
     message.success('Default avatar restored')
   } catch (error) {

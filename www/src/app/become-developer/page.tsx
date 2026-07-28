@@ -1,15 +1,33 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 
 export default function BecomeDeveloperPage() {
   const router = useRouter()
-  const { isAuthenticated, user, upgradeToDeveloper, loading: authLoading } = useAuth()
+  const { isAuthenticated, user, upgradeToDeveloper, refreshUser, loading: authLoading } = useAuth()
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState("")
+  const [form, setForm] = useState({
+    displayName: user?.displayName || "",
+    profileUrl: "",
+    reason: "",
+  })
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      refreshUser().catch(() => undefined)
+    }
+  }, [isAuthenticated, refreshUser])
+
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      displayName: current.displayName || user?.displayName || "",
+    }))
+  }, [user?.displayName])
 
   if (authLoading) {
     return (
@@ -43,11 +61,11 @@ export default function BecomeDeveloperPage() {
     setLoading(true)
     setError("")
     try {
-      await upgradeToDeveloper()
+      await upgradeToDeveloper(form)
       setSuccess(true)
     } catch (err: any) {
       if (err.status === 409) {
-        setError("You are already a developer.")
+        setError(err.message || "You already have a developer application.")
       } else if (err.status === 403) {
         setError("Your email is not verified. Please check your activation link.")
       } else {
@@ -67,10 +85,36 @@ export default function BecomeDeveloperPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <h1 className="mb-2 text-2xl font-bold tracking-tight">Welcome to the developer team!</h1>
+          <h1 className="mb-2 text-2xl font-bold tracking-tight">Application submitted</h1>
           <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
-            You can now publish and manage your applications on DevKit.
+            An administrator will review your developer application before publishing access is enabled.
           </p>
+          <a
+            href="/"
+            className="inline-flex items-center justify-center rounded-lg bg-zinc-950 px-6 py-2.5 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950"
+          >
+            Go to marketplace
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  if (user?.isDeveloper || user?.developerApplicationStatus === "pending" || user?.developerApplicationStatus === "approved") {
+    const status = user.isDeveloper || user.developerApplicationStatus === "approved" ? "approved" : "pending"
+    const copy = {
+      pending: "Your developer application is pending administrator review.",
+      approved: "Your developer profile is approved. You can publish and manage applications.",
+    }[status || "pending"]
+
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-lg items-center px-4 py-16">
+        <div className="w-full text-center">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Developer application
+          </p>
+          <h1 className="mb-2 text-2xl font-bold tracking-tight capitalize">{status}</h1>
+          <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">{copy}</p>
           <a
             href="/"
             className="inline-flex items-center justify-center rounded-lg bg-zinc-950 px-6 py-2.5 text-sm font-semibold text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950"
@@ -91,6 +135,12 @@ export default function BecomeDeveloperPage() {
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
+          {user?.developerApplicationStatus === "rejected" && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              Your last application was rejected. Submit an improved application for another review.
+            </div>
+          )}
+
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
               {error}
@@ -120,6 +170,40 @@ export default function BecomeDeveloperPage() {
               </div>
             </div>
           </div>
+
+          <label className="block text-sm font-medium">
+            Display name
+            <input
+              className="mt-2 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-white/10 dark:bg-zinc-950"
+              value={form.displayName}
+              onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+              required
+              maxLength={80}
+            />
+          </label>
+
+          <label className="block text-sm font-medium">
+            Profile URL
+            <input
+              className="mt-2 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-white/10 dark:bg-zinc-950"
+              type="url"
+              value={form.profileUrl}
+              onChange={(e) => setForm({ ...form, profileUrl: e.target.value })}
+              placeholder="https://github.com/yourname"
+            />
+          </label>
+
+          <label className="block text-sm font-medium">
+            Why should DevKit approve you?
+            <textarea
+              className="mt-2 min-h-32 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-white/10 dark:bg-zinc-950"
+              value={form.reason}
+              onChange={(e) => setForm({ ...form, reason: e.target.value })}
+              required
+              minLength={20}
+              maxLength={1200}
+            />
+          </label>
 
           <button
             type="submit"

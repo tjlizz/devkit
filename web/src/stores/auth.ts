@@ -5,9 +5,13 @@ const tokenKey = 'devkit.auth.token'
 const userKey = 'devkit.auth.user'
 
 export interface AuthUser {
+  id: number
   email: string
   displayName: string
   avatarUrl: string
+  role: 'user' | 'admin'
+  isDeveloper: boolean
+  developerApplicationStatus?: 'pending' | 'approved' | 'rejected'
 }
 
 interface LoginPayload extends AuthUser {

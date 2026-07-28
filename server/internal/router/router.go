@@ -44,6 +44,10 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.Handle("DELETE /api/v1/auth/me/avatar", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ResetAvatar)))
 		mux.Handle("POST /api/v1/auth/change-password", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ChangePassword)))
 		mux.Handle("POST /api/v1/auth/upgrade-to-developer", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.UpgradeToDeveloper)))
+		mux.Handle("GET /api/v1/auth/developer-application", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.MyDeveloperApplication)))
+		mux.Handle("GET /api/v1/admin/developer-applications", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListDeveloperApplications)))
+		mux.Handle("POST /api/v1/admin/developer-applications/{id}/approve", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ApproveDeveloperApplication)))
+		mux.Handle("POST /api/v1/admin/developer-applications/{id}/reject", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.RejectDeveloperApplication)))
 		mux.Handle("GET /api/v1/uploads/avatars/", http.StripPrefix("/api/v1/uploads/avatars/", http.FileServer(http.Dir(configured.auth.AvatarUploadDir))))
 	}
 

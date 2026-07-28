@@ -5,6 +5,24 @@ export interface AuthUser {
   email: string
   displayName: string
   avatarUrl: string
+  role: 'user' | 'admin'
+  isDeveloper: boolean
+  developerApplicationStatus?: 'pending' | 'approved' | 'rejected'
+}
+
+export interface DeveloperApplication {
+  id: number
+  userId: number
+  email: string
+  displayName: string
+  profileUrl: string
+  reason: string
+  status: 'pending' | 'approved' | 'rejected'
+  reviewNote: string
+  reviewedBy?: number
+  reviewedAt?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface RegisterResponse {
@@ -32,6 +50,14 @@ export interface MessageResponse {
 
 export interface StatusResponse {
   status: string
+}
+
+export interface DeveloperApplicationsResponse {
+  applications: DeveloperApplication[]
+}
+
+export interface DeveloperApplicationResponse {
+  application: DeveloperApplication
 }
 
 export async function register(email: string, password: string, displayName: string) {
@@ -94,5 +120,28 @@ export async function updateAvatar(avatar: File) {
 
 export async function resetAvatar() {
   const response = await apiClient.delete<UserResponse>('/auth/me/avatar')
+  return response.data
+}
+
+export async function listDeveloperApplications() {
+  const response = await apiClient.get<DeveloperApplicationsResponse>(
+    '/admin/developer-applications',
+  )
+  return response.data
+}
+
+export async function approveDeveloperApplication(id: number, reviewNote: string) {
+  const response = await apiClient.post<DeveloperApplicationResponse>(
+    `/admin/developer-applications/${id}/approve`,
+    { reviewNote },
+  )
+  return response.data
+}
+
+export async function rejectDeveloperApplication(id: number, reviewNote: string) {
+  const response = await apiClient.post<DeveloperApplicationResponse>(
+    `/admin/developer-applications/${id}/reject`,
+    { reviewNote },
+  )
   return response.data
 }
