@@ -9,6 +9,9 @@ import type { Product } from "@/types";
 export default function ProductCard({ product }: { product: Product }) {
   const author = developerByUsername[product.authorUsername];
   const category = categoryBySlug[product.category];
+  const authorName = product.authorName ?? author?.name ?? "Verified developer";
+  const authorAvatar = product.authorAvatar ?? author?.avatar ?? "/images/avatars/noah.svg";
+  const authorHref = author ? `/developers/${author.username}` : "/search?type=developers";
 
   return (
     <article className="group flex h-full flex-col">
@@ -48,17 +51,17 @@ export default function ProductCard({ product }: { product: Product }) {
         </p>
         <div className="mt-auto flex items-center justify-between gap-3 pt-5 text-xs text-zinc-500">
           <Link
-            href={`/developers/${author.username}`}
+            href={authorHref}
             className="flex min-w-0 items-center gap-2 font-medium text-zinc-700 transition hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white"
           >
             <Image
-              src={author.avatar}
+              src={authorAvatar}
               alt=""
               width={24}
               height={24}
               className="rounded-full ring-1 ring-zinc-950/10 dark:ring-white/15"
             />
-            <span className="truncate">{author.name}</span>
+            <span className="truncate">{authorName}</span>
           </Link>
           <div className="flex shrink-0 items-center gap-3">
             <span className="flex items-center gap-1" title={`${product.rating} rating`}>

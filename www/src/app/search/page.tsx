@@ -10,6 +10,7 @@ import { createMetadata } from "@/lib/metadata";
 import { categoryBySlug } from "@/lib/mock/categories";
 import { developers } from "@/lib/mock/developers";
 import { products } from "@/lib/mock/products";
+import { getMarketplaceProducts } from "@/lib/marketplace";
 import { absoluteUrl, siteConfig } from "@/lib/site";
 import type { CategorySlug } from "@/types";
 
@@ -52,8 +53,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const query = q.trim();
   const needle = query.toLowerCase();
   const validCategory = categoryBySlug[category as CategorySlug] ? category : "";
+  const marketplaceProducts = await getMarketplaceProducts({ category: validCategory, q: query });
 
-  const matchedProducts = products.filter((product) => {
+  const matchedProducts = marketplaceProducts.filter((product) => {
     const inCategory = !validCategory || product.category === validCategory;
     const haystack = [
       product.name,
@@ -81,7 +83,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
   const matchedTags = Array.from(
     new Set(
-      products
+      marketplaceProducts
         .flatMap((product) => product.tags)
         .filter((tag) => !needle || tag.toLowerCase().includes(needle)),
     ),

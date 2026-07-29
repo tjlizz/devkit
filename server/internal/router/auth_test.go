@@ -826,6 +826,201 @@ func TestDeveloperApplicationRejectionFlow(t *testing.T) {
 	}
 }
 
+func TestAppPublishReviewAndMarketplaceFlow(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	userID := insertVerifiedUser(t, db, "dev@example.com", "old-password")
+	regularID := insertVerifiedUser(t, db, "buyer@example.com", "old-password")
+	adminID := insertVerifiedUser(t, db, "admin@example.com", "old-password")
+	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", adminID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO developers(user_id, display_name) VALUES (?, ?)", userID, "Dev Studio"); err != nil {
+		t.Fatalf("insert developer: %v", err)
+	}
+
+	developerToken := loginToken(t, app, "dev@example.com", "old-password")
+	regularToken := loginToken(t, app, "buyer@example.com", "old-password")
+	adminToken := loginToken(t, app, "admin@example.com", "old-password")
+	body := `{"name":"Build Lens","slug":"build-lens","tagline":"Release intelligence for busy engineering teams.","description":"Track release health, ownership, and launch readiness in one clean workflow.","category":"developer-tools","priceCents":4900,"currency":"USD","iconUrl":"https://example.com/icon.png","coverImageUrl":"https://example.com/cover.png","demoUrl":"https://example.com/demo","docsUrl":"https://example.com/docs","sourceUrl":"https://github.com/example/build-lens","supportUrl":"mailto:support@example.com","tags":["release","analytics"],"version":"1.0.0","releaseNotes":"Initial marketplace release."}`
+
+	unauthenticated := performJSONRequest(t, app, http.MethodPost, "/api/v1/apps", body)
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated publish status = %d, want %d", unauthenticated.Code, http.StatusUnauthorized)
+	}
+	notDeveloper := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/apps", body, regularToken)
+	if notDeveloper.Code != http.StatusForbidden {
+		t.Fatalf("regular publish status = %d, want %d", notDeveloper.Code, http.StatusForbidden)
+	}
+
+	submitted := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/apps", body, developerToken)
+	if submitted.Code != http.StatusCreated {
+		t.Fatalf("publish status = %d, want %d; body = %s", submitted.Code, http.StatusCreated, submitted.Body.String())
+	}
+	var submittedBody struct {
+		App struct {
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
+			Slug   string `json:"slug"`
+		} `json:"app"`
+	}
+	if err := json.NewDecoder(submitted.Body).Decode(&submittedBody); err != nil {
+		t.Fatalf("decode published app: %v", err)
+	}
+	if submittedBody.App.ID < 1 || submittedBody.App.Status != "pending_review" || submittedBody.App.Slug != "build-lens" {
+		t.Fatalf("submitted app = %+v, want pending_review build-lens", submittedBody.App)
+	}
+
+	beforeApproval := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps", "")
+	if beforeApproval.Code != http.StatusOK {
+		t.Fatalf("public list before approval status = %d, want %d", beforeApproval.Code, http.StatusOK)
+	}
+	var beforeBody struct {
+		Apps []struct {
+			Slug string `json:"slug"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(beforeApproval.Body).Decode(&beforeBody); err != nil {
+		t.Fatalf("decode before approval list: %v", err)
+	}
+	if len(beforeBody.Apps) != 0 {
+		t.Fatalf("public apps before approval = %+v, want empty", beforeBody.Apps)
+	}
+
+	nonAdminReview := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/apps/"+strconv.FormatInt(submittedBody.App.ID, 10)+"/approve",
+		`{"reviewNote":"Looks good."}`,
+		developerToken,
+	)
+	if nonAdminReview.Code != http.StatusForbidden {
+		t.Fatalf("non-admin app approval status = %d, want %d", nonAdminReview.Code, http.StatusForbidden)
+	}
+
+	adminList := performJSONRequestWithToken(t, app, http.MethodGet, "/api/v1/admin/apps", "", adminToken)
+	if adminList.Code != http.StatusOK {
+		t.Fatalf("admin app list status = %d, want %d; body = %s", adminList.Code, http.StatusOK, adminList.Body.String())
+	}
+	var adminListBody struct {
+		Apps []struct {
+			ID             int64  `json:"id"`
+			DeveloperEmail string `json:"developerEmail"`
+			Status         string `json:"status"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(adminList.Body).Decode(&adminListBody); err != nil {
+		t.Fatalf("decode admin app list: %v", err)
+	}
+	if len(adminListBody.Apps) != 1 || adminListBody.Apps[0].DeveloperEmail != "dev@example.com" || adminListBody.Apps[0].Status != "pending_review" {
+		t.Fatalf("admin apps = %+v, want one pending dev@example.com app", adminListBody.Apps)
+	}
+
+	approved := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/apps/"+strconv.FormatInt(submittedBody.App.ID, 10)+"/approve",
+		`{"reviewNote":"Approved for launch."}`,
+		adminToken,
+	)
+	if approved.Code != http.StatusOK {
+		t.Fatalf("approve app status = %d, want %d; body = %s", approved.Code, http.StatusOK, approved.Body.String())
+	}
+	var status string
+	var published bool
+	if err := db.QueryRow("SELECT status, published_at IS NOT NULL FROM apps WHERE id = ?", submittedBody.App.ID).Scan(&status, &published); err != nil {
+		t.Fatalf("query approved app: %v", err)
+	}
+	if status != "approved" || !published {
+		t.Fatalf("approved app status=%q published=%v, want approved and published", status, published)
+	}
+
+	reapprove := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/apps/"+strconv.FormatInt(submittedBody.App.ID, 10)+"/approve",
+		`{"reviewNote":"Again."}`,
+		adminToken,
+	)
+	if reapprove.Code != http.StatusConflict {
+		t.Fatalf("reapprove app status = %d, want %d", reapprove.Code, http.StatusConflict)
+	}
+
+	publicList := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps?category=developer-tools&q=build", "")
+	if publicList.Code != http.StatusOK {
+		t.Fatalf("public list status = %d, want %d; body = %s", publicList.Code, http.StatusOK, publicList.Body.String())
+	}
+	var publicListBody struct {
+		Apps []struct {
+			Slug          string   `json:"slug"`
+			DeveloperName string   `json:"developerName"`
+			Tags          []string `json:"tags"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(publicList.Body).Decode(&publicListBody); err != nil {
+		t.Fatalf("decode public list: %v", err)
+	}
+	if len(publicListBody.Apps) != 1 || publicListBody.Apps[0].Slug != "build-lens" || publicListBody.Apps[0].DeveloperName != "Dev Studio" {
+		t.Fatalf("public apps = %+v, want approved build-lens", publicListBody.Apps)
+	}
+
+	publicDetail := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps/build-lens", "")
+	if publicDetail.Code != http.StatusOK {
+		t.Fatalf("public detail status = %d, want %d; body = %s", publicDetail.Code, http.StatusOK, publicDetail.Body.String())
+	}
+	_ = regularID
+}
+
+func TestAppRejectionRequiresNote(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	userID := insertVerifiedUser(t, db, "dev@example.com", "old-password")
+	adminID := insertVerifiedUser(t, db, "admin@example.com", "old-password")
+	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", adminID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO developers(user_id, display_name) VALUES (?, ?)", userID, "Dev Studio"); err != nil {
+		t.Fatalf("insert developer: %v", err)
+	}
+	adminToken := loginToken(t, app, "admin@example.com", "old-password")
+	result, err := db.Exec(
+		`INSERT INTO apps(developer_id, name, slug, tagline, description, category, price_cents, currency, version)
+		 VALUES ((SELECT id FROM developers WHERE user_id = ?), 'Draft App', 'draft-app', 'A useful draft.', 'Draft description', 'saas', 0, 'USD', '0.1.0')`,
+		userID,
+	)
+	if err != nil {
+		t.Fatalf("insert draft app: %v", err)
+	}
+	appID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("read draft app id: %v", err)
+	}
+
+	missingNote := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/apps/"+strconv.FormatInt(appID, 10)+"/reject",
+		`{"reviewNote":""}`,
+		adminToken,
+	)
+	if missingNote.Code != http.StatusBadRequest {
+		t.Fatalf("missing note rejection status = %d, want %d", missingNote.Code, http.StatusBadRequest)
+	}
+	rejected := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/apps/"+strconv.FormatInt(appID, 10)+"/reject",
+		`{"reviewNote":"Needs clearer docs."}`,
+		adminToken,
+	)
+	if rejected.Code != http.StatusOK {
+		t.Fatalf("reject status = %d, want %d; body = %s", rejected.Code, http.StatusOK, rejected.Body.String())
+	}
+}
+
 func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	t.Helper()
 	db, err := database.Open(":memory:", migrations.Files)

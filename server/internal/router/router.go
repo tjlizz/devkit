@@ -48,6 +48,12 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.Handle("GET /api/v1/admin/developer-applications", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListDeveloperApplications)))
 		mux.Handle("POST /api/v1/admin/developer-applications/{id}/approve", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ApproveDeveloperApplication)))
 		mux.Handle("POST /api/v1/admin/developer-applications/{id}/reject", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.RejectDeveloperApplication)))
+		mux.Handle("POST /api/v1/apps", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.CreateApp)))
+		mux.Handle("GET /api/v1/admin/apps", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListAdminApps)))
+		mux.Handle("POST /api/v1/admin/apps/{id}/approve", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ApproveApp)))
+		mux.Handle("POST /api/v1/admin/apps/{id}/reject", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.RejectApp)))
+		mux.HandleFunc("GET /api/v1/marketplace/apps", authHandler.ListMarketplaceApps)
+		mux.HandleFunc("GET /api/v1/marketplace/apps/{slug}", authHandler.GetMarketplaceApp)
 		mux.Handle("GET /api/v1/uploads/avatars/", http.StripPrefix("/api/v1/uploads/avatars/", http.FileServer(http.Dir(configured.auth.AvatarUploadDir))))
 	}
 

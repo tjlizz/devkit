@@ -19,7 +19,8 @@ import { JsonLd } from "@/lib/json-ld";
 import { createMetadata } from "@/lib/metadata";
 import { categoryBySlug } from "@/lib/mock/categories";
 import { developerByUsername } from "@/lib/mock/developers";
-import { productBySlug, products } from "@/lib/mock/products";
+import { products } from "@/lib/mock/products";
+import { getMarketplaceProduct } from "@/lib/marketplace";
 import { absoluteUrl, siteConfig } from "@/lib/site";
 
 interface ProductPageProps {
@@ -32,7 +33,7 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const product = productBySlug[slug];
+  const { product } = await getMarketplaceProduct(slug);
 
   if (!product) {
     return createMetadata({
@@ -61,11 +62,12 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { slug } = await params;
-  const product = productBySlug[slug];
+  const { product, developer } = await getMarketplaceProduct(slug);
 
   if (!product) notFound();
 
-  const author = developerByUsername[product.authorUsername];
+  const author = developer ?? developerByUsername[product.authorUsername];
+  const authorHref = developer ? "/search?type=developers" : `/developers/${author.username}`;
   const category = categoryBySlug[product.category];
   const related = products
     .filter((item) => item.slug !== product.slug && item.category === product.category)
@@ -185,7 +187,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-4">
                   <Link
-                    href={`/developers/${author.username}`}
+                    href={authorHref}
                     className="flex items-center gap-2.5"
                   >
                     <Image
@@ -372,7 +374,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
               </div>
             </div>
             <Link
-              href={`/developers/${author.username}`}
+              href={authorHref}
               className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300"
             >
               Meet the developer

@@ -17,6 +17,7 @@ import { JsonLd } from "@/lib/json-ld";
 import { createMetadata } from "@/lib/metadata";
 import { developers } from "@/lib/mock/developers";
 import { featuredProducts } from "@/lib/mock/products";
+import { getMarketplaceProducts } from "@/lib/marketplace";
 import { absoluteUrl, siteConfig } from "@/lib/site";
 
 export const metadata: Metadata = createMetadata({
@@ -49,7 +50,9 @@ const sellerBenefits = [
   "Keep ownership of your audience",
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const marketplaceProducts = await getMarketplaceProducts();
+  const displayedProducts = marketplaceProducts.length > 0 ? marketplaceProducts.slice(0, 6) : featuredProducts;
   const jsonLd = [
     {
       "@context": "https://schema.org",
@@ -67,7 +70,7 @@ export default function HomePage() {
       "@context": "https://schema.org",
       "@type": "ItemList",
       name: "Featured developer products",
-      itemListElement: featuredProducts.map((product, index) => ({
+      itemListElement: displayedProducts.map((product, index) => ({
         "@type": "ListItem",
         position: index + 1,
         url: absoluteUrl(`/products/${product.slug}`),
@@ -89,7 +92,7 @@ export default function HomePage() {
           link={{ label: "View all products", href: "/search" }}
         />
         <div className="grid gap-x-6 gap-y-12 md:grid-cols-2 lg:grid-cols-3">
-          {featuredProducts.map((product) => (
+          {displayedProducts.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>

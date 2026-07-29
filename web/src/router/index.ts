@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import HomeView from '../views/HomeView.vue'
 import ChangePasswordView from '../views/ChangePasswordView.vue'
+import AppReviewsView from '../views/AppReviewsView.vue'
 import DeveloperApplicationsView from '../views/DeveloperApplicationsView.vue'
 import ForgotPasswordView from '../views/ForgotPasswordView.vue'
 import LoginView from '../views/LoginView.vue'
@@ -46,6 +47,11 @@ const router = createRouter({
       path: '/admin/developer-applications',
       name: 'admin-developer-applications',
       component: DeveloperApplicationsView,
+    },
+    {
+      path: '/admin/apps',
+      name: 'admin-apps',
+      component: AppReviewsView,
     },
     {
       path: '/register',

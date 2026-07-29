@@ -40,6 +40,12 @@ const selectedKeys = computed(() => [route.path])
         >
           <RouterLink to="/admin/developer-applications">Developer Reviews</RouterLink>
         </a-menu-item>
+        <a-menu-item
+          v-if="auth.isAuthenticated && auth.user?.role === 'admin'"
+          key="/admin/apps"
+        >
+          <RouterLink to="/admin/apps">App Reviews</RouterLink>
+        </a-menu-item>
       </a-menu>
       <div v-if="auth.isAuthenticated && auth.user" class="header-user">
         <a-avatar :src="auth.user.avatarUrl" :size="32" />

@@ -33,6 +33,26 @@ interface AuthContextValue {
   logout: () => void
   refreshUser: () => Promise<AuthUser>
   upgradeToDeveloper: (payload: { displayName: string; profileUrl: string; reason: string }) => Promise<void>
+  submitApp: (payload: AppPublishPayload) => Promise<void>
+}
+
+export interface AppPublishPayload {
+  name: string
+  slug: string
+  tagline: string
+  description: string
+  category: string
+  priceCents: number
+  currency: string
+  iconUrl: string
+  coverImageUrl: string
+  demoUrl: string
+  docsUrl: string
+  sourceUrl: string
+  supportUrl: string
+  tags: string[]
+  version: string
+  releaseNotes: string
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -227,6 +247,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refreshUser()
   }, [refreshUser, token])
 
+  const submitApp = useCallback(async (payload: AppPublishPayload) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/apps`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "App submission failed" }))
+      throw { status: res.status, message: body.error || "App submission failed" }
+    }
+  }, [token])
+
   return (
     <AuthContext.Provider
       value={{
@@ -244,6 +280,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         refreshUser,
         upgradeToDeveloper,
+        submitApp,
       }}
     >
       {children}

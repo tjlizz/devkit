@@ -7,6 +7,7 @@ import { JsonLd } from "@/lib/json-ld";
 import { createMetadata } from "@/lib/metadata";
 import { categories, categoryBySlug } from "@/lib/mock/categories";
 import { products, productsByCategory } from "@/lib/mock/products";
+import { getMarketplaceProducts } from "@/lib/marketplace";
 import { absoluteUrl, siteConfig } from "@/lib/site";
 import type { CategorySlug } from "@/types";
 
@@ -50,7 +51,11 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
 
   if (!category) notFound();
 
-  const categoryProducts = productsByCategory[category.slug] ?? [];
+  const marketplaceProducts = await getMarketplaceProducts({ category: category.slug });
+  const categoryProducts =
+    marketplaceProducts.length > 0
+      ? marketplaceProducts.filter((product) => product.category === category.slug)
+      : productsByCategory[category.slug] ?? [];
   const showcasedProducts =
     categoryProducts.length >= 3
       ? categoryProducts

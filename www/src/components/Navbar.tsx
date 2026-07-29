@@ -75,6 +75,15 @@ export default function Navbar() {
                 >
                   Become a developer
                 </Link>
+                {user.isDeveloper ? (
+                  <Link
+                    href="/publish"
+                    onClick={closeCurrentMenu}
+                    className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+                  >
+                    Publish app
+                  </Link>
+                ) : null}
                 <Link
                   href="/profile-settings"
                   onClick={closeCurrentMenu}
@@ -142,6 +151,15 @@ export default function Navbar() {
                 >
                   Become a developer
                 </Link>
+                {user?.isDeveloper ? (
+                  <Link
+                    href="/publish"
+                    onClick={closeCurrentMenu}
+                    className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+                  >
+                    Publish app
+                  </Link>
+                ) : null}
                 <Link
                   href="/profile-settings"
                   onClick={closeCurrentMenu}

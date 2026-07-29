@@ -62,6 +62,8 @@ export interface Product {
   price: number;
   priceLabel?: string;
   authorUsername: string;
+  authorName?: string;
+  authorAvatar?: string;
   createdAt: string;
   updatedAt: string;
   sales: number;
