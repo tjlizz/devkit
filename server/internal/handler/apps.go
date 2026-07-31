@@ -83,14 +83,8 @@ func (h *Auth) CreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var developerID int64
-	if err := h.db.QueryRowContext(r.Context(), "SELECT id FROM developers WHERE user_id = ?", userID).Scan(&developerID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusForbidden, "approved developer access required")
-			return
-		}
-		h.logger.ErrorContext(r.Context(), "read developer for app publish", "error", err)
-		writeError(w, http.StatusInternalServerError, "could not publish app")
+	developerID, ok := h.requireDeveloperID(w, r, userID)
+	if !ok {
 		return
 	}
 
@@ -99,6 +93,10 @@ func (h *Auth) CreateApp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.createAppForDeveloper(w, r, developerID, request)
+}
+
+func (h *Auth) createAppForDeveloper(w http.ResponseWriter, r *http.Request, developerID int64, request appPublishRequest) {
 	normalizeAppPublishRequest(&request)
 	if err := validateAppPublishRequest(request); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -143,6 +141,202 @@ func (h *Auth) CreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]marketplaceApp{"app": app})
+}
+
+func (h *Auth) ListDeveloperApps(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	developerID, ok := h.requireDeveloperID(w, r, userID)
+	if !ok {
+		return
+	}
+	limit, offset := pagination(r)
+	apps, err := h.queryApps(
+		r,
+		`SELECT a.id, a.developer_id, d.display_name, '', a.name, a.slug, a.tagline,
+		        a.description, a.category, a.price_cents, a.currency, a.icon_url, a.cover_image_url,
+		        a.demo_url, a.docs_url, a.source_url, a.support_url, a.tags, a.version,
+		        a.release_notes, a.status, a.review_note, a.reviewed_by, a.reviewed_at,
+		        a.published_at, a.created_at, a.updated_at
+		 FROM apps a
+		 JOIN developers d ON d.id = a.developer_id
+		 WHERE a.developer_id = ?
+		 ORDER BY a.updated_at DESC, a.id DESC LIMIT ? OFFSET ?`,
+		false,
+		developerID, limit, offset,
+	)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "list developer apps", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not list apps")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"apps": apps, "limit": limit, "offset": offset})
+}
+
+func (h *Auth) GetDeveloperApp(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	developerID, ok := h.requireDeveloperID(w, r, userID)
+	if !ok {
+		return
+	}
+	appID, ok := appIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	app, err := h.readDeveloperApp(r, appID, developerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "app not found")
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read developer app", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read app")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]marketplaceApp{"app": app})
+}
+
+func (h *Auth) UpdateDeveloperApp(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	developerID, ok := h.requireDeveloperID(w, r, userID)
+	if !ok {
+		return
+	}
+	appID, ok := appIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	current, err := h.readDeveloperApp(r, appID, developerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "app not found")
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read app before update", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update app")
+		return
+	}
+	if current.Status == "delisted" {
+		writeError(w, http.StatusConflict, "delisted apps cannot be edited")
+		return
+	}
+
+	var request appPublishRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	normalizeAppPublishRequest(&request)
+	if err := validateAppPublishRequest(request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	tagsJSON, err := json.Marshal(request.Tags)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "tags are invalid")
+		return
+	}
+
+	nextStatus := current.Status
+	if current.Status == "approved" {
+		nextStatus = "pending_review"
+	}
+	_, err = h.db.ExecContext(
+		r.Context(),
+		`UPDATE apps
+		 SET name = ?, slug = ?, tagline = ?, description = ?, category = ?, price_cents = ?,
+		     currency = ?, icon_url = ?, cover_image_url = ?, demo_url = ?, docs_url = ?,
+		     source_url = ?, support_url = ?, tags = ?, version = ?, release_notes = ?,
+		     status = ?, review_note = CASE WHEN ? = 'pending_review' THEN '' ELSE review_note END,
+		     reviewed_by = CASE WHEN ? = 'pending_review' THEN NULL ELSE reviewed_by END,
+		     reviewed_at = CASE WHEN ? = 'pending_review' THEN NULL ELSE reviewed_at END,
+		     published_at = CASE WHEN ? = 'pending_review' THEN NULL ELSE published_at END,
+		     updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND developer_id = ?`,
+		request.Name, request.Slug, request.Tagline, request.Description, request.Category, request.PriceCents,
+		request.Currency, request.IconURL, request.CoverImageURL, request.DemoURL, request.DocsURL,
+		request.SourceURL, request.SupportURL, string(tagsJSON), request.Version, request.ReleaseNotes,
+		nextStatus, nextStatus, nextStatus, nextStatus, nextStatus, appID, developerID,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: apps.slug") {
+			writeError(w, http.StatusConflict, "app slug is already taken")
+			return
+		}
+		h.logger.ErrorContext(r.Context(), "update developer app", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update app")
+		return
+	}
+	app, err := h.readDeveloperApp(r, appID, developerID)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read updated developer app", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update app")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]marketplaceApp{"app": app})
+}
+
+func (h *Auth) DelistDeveloperApp(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	developerID, ok := h.requireDeveloperID(w, r, userID)
+	if !ok {
+		return
+	}
+	appID, ok := appIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	current, err := h.readDeveloperApp(r, appID, developerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "app not found")
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read app before delist", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not delist app")
+		return
+	}
+	if current.Status == "delisted" {
+		writeJSON(w, http.StatusOK, map[string]marketplaceApp{"app": current})
+		return
+	}
+	if current.Status != "approved" {
+		writeError(w, http.StatusConflict, "only approved apps can be delisted")
+		return
+	}
+	if _, err := h.db.ExecContext(
+		r.Context(),
+		`UPDATE apps
+		 SET status = 'delisted', review_note = '', published_at = NULL, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND developer_id = ?`,
+		appID, developerID,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "delist developer app", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not delist app")
+		return
+	}
+	app, err := h.readDeveloperApp(r, appID, developerID)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read delisted developer app", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not delist app")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]marketplaceApp{"app": app})
 }
 
 func (h *Auth) ListAdminApps(w http.ResponseWriter, r *http.Request) {
@@ -406,7 +600,7 @@ func pagination(r *http.Request) (int, int) {
 }
 
 func validAppStatus(status string) bool {
-	return status == "pending_review" || status == "approved" || status == "rejected"
+	return status == "pending_review" || status == "approved" || status == "rejected" || status == "delisted"
 }
 
 func appIDFromPath(w http.ResponseWriter, r *http.Request) (int64, bool) {
@@ -437,6 +631,36 @@ func (h *Auth) readApp(r *http.Request, appID int64, includeEmail bool) (marketp
 		appID,
 	)
 	return scanApp(row)
+}
+
+func (h *Auth) readDeveloperApp(r *http.Request, appID int64, developerID int64) (marketplaceApp, error) {
+	row := h.db.QueryRowContext(
+		r.Context(),
+		`SELECT a.id, a.developer_id, d.display_name, '', a.name, a.slug, a.tagline,
+		        a.description, a.category, a.price_cents, a.currency, a.icon_url, a.cover_image_url,
+		        a.demo_url, a.docs_url, a.source_url, a.support_url, a.tags, a.version,
+		        a.release_notes, a.status, a.review_note, a.reviewed_by, a.reviewed_at,
+		        a.published_at, a.created_at, a.updated_at
+		 FROM apps a
+		 JOIN developers d ON d.id = a.developer_id
+		 WHERE a.id = ? AND a.developer_id = ?`,
+		appID, developerID,
+	)
+	return scanApp(row)
+}
+
+func (h *Auth) requireDeveloperID(w http.ResponseWriter, r *http.Request, userID int64) (int64, bool) {
+	var developerID int64
+	if err := h.db.QueryRowContext(r.Context(), "SELECT id FROM developers WHERE user_id = ?", userID).Scan(&developerID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusForbidden, "approved developer access required")
+			return 0, false
+		}
+		h.logger.ErrorContext(r.Context(), "read developer", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not verify developer access")
+		return 0, false
+	}
+	return developerID, true
 }
 
 func (h *Auth) readAppBySlug(r *http.Request, slug string) (marketplaceApp, error) {

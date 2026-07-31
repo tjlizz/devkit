@@ -973,6 +973,176 @@ func TestAppPublishReviewAndMarketplaceFlow(t *testing.T) {
 	_ = regularID
 }
 
+func TestDeveloperAppManagementFlow(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	userID := insertVerifiedUser(t, db, "dev@example.com", "old-password")
+	otherUserID := insertVerifiedUser(t, db, "other@example.com", "old-password")
+	regularID := insertVerifiedUser(t, db, "buyer@example.com", "old-password")
+	adminID := insertVerifiedUser(t, db, "admin@example.com", "old-password")
+	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", adminID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO developers(user_id, display_name) VALUES (?, ?)", userID, "Dev Studio"); err != nil {
+		t.Fatalf("insert developer: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO developers(user_id, display_name) VALUES (?, ?)", otherUserID, "Other Studio"); err != nil {
+		t.Fatalf("insert other developer: %v", err)
+	}
+	developerToken := loginToken(t, app, "dev@example.com", "old-password")
+	regularToken := loginToken(t, app, "buyer@example.com", "old-password")
+	adminToken := loginToken(t, app, "admin@example.com", "old-password")
+	body := `{"name":"Build Lens","slug":"build-lens","tagline":"Release intelligence for busy engineering teams.","description":"Track release health, ownership, and launch readiness in one clean workflow.","category":"developer-tools","priceCents":4900,"currency":"USD","iconUrl":"https://example.com/icon.png","coverImageUrl":"https://example.com/cover.png","demoUrl":"https://example.com/demo","docsUrl":"https://example.com/docs","sourceUrl":"https://github.com/example/build-lens","supportUrl":"mailto:support@example.com","tags":["release","analytics"],"version":"1.0.0","releaseNotes":"Initial marketplace release."}`
+	submitted := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/apps", body, developerToken)
+	if submitted.Code != http.StatusCreated {
+		t.Fatalf("publish status = %d, want %d; body = %s", submitted.Code, http.StatusCreated, submitted.Body.String())
+	}
+	var submittedBody struct {
+		App struct {
+			ID int64 `json:"id"`
+		} `json:"app"`
+	}
+	if err := json.NewDecoder(submitted.Body).Decode(&submittedBody); err != nil {
+		t.Fatalf("decode published app: %v", err)
+	}
+	otherResult, err := db.Exec(
+		`INSERT INTO apps(developer_id, name, slug, tagline, description, category, price_cents, currency, version)
+		 VALUES ((SELECT id FROM developers WHERE user_id = ?), 'Other App', 'other-app', 'Other tagline.', 'Other description', 'saas', 1000, 'USD', '1.0.0')`,
+		otherUserID,
+	)
+	if err != nil {
+		t.Fatalf("insert other app: %v", err)
+	}
+	otherAppID, err := otherResult.LastInsertId()
+	if err != nil {
+		t.Fatalf("read other app id: %v", err)
+	}
+
+	unauthenticated := performJSONRequest(t, app, http.MethodGet, "/api/v1/developer/apps", "")
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated list status = %d, want %d", unauthenticated.Code, http.StatusUnauthorized)
+	}
+	notDeveloper := performJSONRequestWithToken(t, app, http.MethodGet, "/api/v1/developer/apps", "", regularToken)
+	if notDeveloper.Code != http.StatusForbidden {
+		t.Fatalf("regular list status = %d, want %d", notDeveloper.Code, http.StatusForbidden)
+	}
+	ownedList := performJSONRequestWithToken(t, app, http.MethodGet, "/api/v1/developer/apps", "", developerToken)
+	if ownedList.Code != http.StatusOK {
+		t.Fatalf("developer list status = %d, want %d; body = %s", ownedList.Code, http.StatusOK, ownedList.Body.String())
+	}
+	var ownedListBody struct {
+		Apps []struct {
+			ID   int64  `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(ownedList.Body).Decode(&ownedListBody); err != nil {
+		t.Fatalf("decode developer apps: %v", err)
+	}
+	if len(ownedListBody.Apps) != 1 || ownedListBody.Apps[0].Slug != "build-lens" {
+		t.Fatalf("developer apps = %+v, want only owned build-lens", ownedListBody.Apps)
+	}
+	otherDetail := performJSONRequestWithToken(t, app, http.MethodGet, "/api/v1/developer/apps/"+strconv.FormatInt(otherAppID, 10), "", developerToken)
+	if otherDetail.Code != http.StatusNotFound {
+		t.Fatalf("other developer app detail status = %d, want %d", otherDetail.Code, http.StatusNotFound)
+	}
+
+	approved := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/apps/"+strconv.FormatInt(submittedBody.App.ID, 10)+"/approve",
+		`{"reviewNote":"Approved for launch."}`,
+		adminToken,
+	)
+	if approved.Code != http.StatusOK {
+		t.Fatalf("approve app status = %d, want %d; body = %s", approved.Code, http.StatusOK, approved.Body.String())
+	}
+	updateBody := `{"name":"Build Lens Pro","slug":"build-lens-pro","tagline":"Sharper release intelligence.","description":"Updated launch readiness, ownership, and release health details.","category":"developer-tools","priceCents":9900,"currency":"USD","iconUrl":"https://example.com/new-icon.png","coverImageUrl":"https://example.com/new-cover.png","demoUrl":"https://example.com/new-demo","docsUrl":"https://example.com/new-docs","sourceUrl":"https://github.com/example/build-lens-pro","supportUrl":"mailto:help@example.com","tags":["release","governance"],"version":"1.1.0","releaseNotes":"Updated positioning and assets."}`
+	updated := performJSONRequestWithToken(t, app, http.MethodPut, "/api/v1/developer/apps/"+strconv.FormatInt(submittedBody.App.ID, 10), updateBody, developerToken)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update app status = %d, want %d; body = %s", updated.Code, http.StatusOK, updated.Body.String())
+	}
+	var updatedBody struct {
+		App struct {
+			Status        string `json:"status"`
+			Slug          string `json:"slug"`
+			PriceCents    int64  `json:"priceCents"`
+			IconURL       string `json:"iconUrl"`
+			CoverImageURL string `json:"coverImageUrl"`
+		} `json:"app"`
+	}
+	if err := json.NewDecoder(updated.Body).Decode(&updatedBody); err != nil {
+		t.Fatalf("decode updated app: %v", err)
+	}
+	if updatedBody.App.Status != "pending_review" || updatedBody.App.Slug != "build-lens-pro" || updatedBody.App.PriceCents != 9900 ||
+		updatedBody.App.IconURL != "https://example.com/new-icon.png" || updatedBody.App.CoverImageURL != "https://example.com/new-cover.png" {
+		t.Fatalf("updated app = %+v, want pending_review edited assets and price", updatedBody.App)
+	}
+	publicOldDetail := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps/build-lens", "")
+	if publicOldDetail.Code != http.StatusNotFound {
+		t.Fatalf("old public detail after edit status = %d, want %d", publicOldDetail.Code, http.StatusNotFound)
+	}
+	publicNewDetail := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps/build-lens-pro", "")
+	if publicNewDetail.Code != http.StatusNotFound {
+		t.Fatalf("new public detail before reapproval status = %d, want %d", publicNewDetail.Code, http.StatusNotFound)
+	}
+	unauthorizedUpdate := performJSONRequestWithToken(t, app, http.MethodPut, "/api/v1/developer/apps/"+strconv.FormatInt(otherAppID, 10), updateBody, developerToken)
+	if unauthorizedUpdate.Code != http.StatusNotFound {
+		t.Fatalf("other developer update status = %d, want %d", unauthorizedUpdate.Code, http.StatusNotFound)
+	}
+
+	reapproved := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/apps/"+strconv.FormatInt(submittedBody.App.ID, 10)+"/approve",
+		`{"reviewNote":"Approved again."}`,
+		adminToken,
+	)
+	if reapproved.Code != http.StatusOK {
+		t.Fatalf("reapprove app status = %d, want %d; body = %s", reapproved.Code, http.StatusOK, reapproved.Body.String())
+	}
+	delisted := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/developer/apps/"+strconv.FormatInt(submittedBody.App.ID, 10)+"/delist", `{}`, developerToken)
+	if delisted.Code != http.StatusOK {
+		t.Fatalf("delist app status = %d, want %d; body = %s", delisted.Code, http.StatusOK, delisted.Body.String())
+	}
+	var delistedBody struct {
+		App struct {
+			Status string `json:"status"`
+		} `json:"app"`
+	}
+	if err := json.NewDecoder(delisted.Body).Decode(&delistedBody); err != nil {
+		t.Fatalf("decode delisted app: %v", err)
+	}
+	if delistedBody.App.Status != "delisted" {
+		t.Fatalf("delisted status = %q, want delisted", delistedBody.App.Status)
+	}
+	repeatedDelist := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/developer/apps/"+strconv.FormatInt(submittedBody.App.ID, 10)+"/delist", `{}`, developerToken)
+	if repeatedDelist.Code != http.StatusOK {
+		t.Fatalf("repeated delist app status = %d, want %d", repeatedDelist.Code, http.StatusOK)
+	}
+	publicList := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps?q=build", "")
+	if publicList.Code != http.StatusOK {
+		t.Fatalf("public list status = %d, want %d; body = %s", publicList.Code, http.StatusOK, publicList.Body.String())
+	}
+	var publicListBody struct {
+		Apps []struct {
+			Slug string `json:"slug"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(publicList.Body).Decode(&publicListBody); err != nil {
+		t.Fatalf("decode public apps: %v", err)
+	}
+	if len(publicListBody.Apps) != 0 {
+		t.Fatalf("public apps after delist = %+v, want empty", publicListBody.Apps)
+	}
+	publicDelistedDetail := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps/build-lens-pro", "")
+	if publicDelistedDetail.Code != http.StatusNotFound {
+		t.Fatalf("public detail after delist status = %d, want %d", publicDelistedDetail.Code, http.StatusNotFound)
+	}
+	_ = regularID
+}
+
 func TestAppRejectionRequiresNote(t *testing.T) {
 	db, app := newAuthTestApp(t)
 	userID := insertVerifiedUser(t, db, "dev@example.com", "old-password")

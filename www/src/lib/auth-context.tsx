@@ -34,6 +34,10 @@ interface AuthContextValue {
   refreshUser: () => Promise<AuthUser>
   upgradeToDeveloper: (payload: { displayName: string; profileUrl: string; reason: string }) => Promise<void>
   submitApp: (payload: AppPublishPayload) => Promise<void>
+  listDeveloperApps: () => Promise<DeveloperApp[]>
+  getDeveloperApp: (id: number) => Promise<DeveloperApp>
+  updateDeveloperApp: (id: number, payload: AppPublishPayload) => Promise<DeveloperApp>
+  delistDeveloperApp: (id: number) => Promise<DeveloperApp>
 }
 
 export interface AppPublishPayload {
@@ -53,6 +57,19 @@ export interface AppPublishPayload {
   tags: string[]
   version: string
   releaseNotes: string
+}
+
+export interface DeveloperApp extends AppPublishPayload {
+  id: number
+  developerId: number
+  developerName: string
+  status: "pending_review" | "approved" | "rejected" | "delisted"
+  reviewNote: string
+  reviewedBy?: number
+  reviewedAt?: string
+  publishedAt?: string
+  createdAt: string
+  updatedAt: string
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -263,6 +280,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [token])
 
+  const getDeveloperApp = useCallback(async (id: number) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/developer/apps/${id}`, {
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not load app" }))
+      throw { status: res.status, message: body.error || "Could not load app" }
+    }
+    const data = await res.json()
+    return data.app as DeveloperApp
+  }, [token])
+
+  const listDeveloperApps = useCallback(async () => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/developer/apps`, {
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not load apps" }))
+      throw { status: res.status, message: body.error || "Could not load apps" }
+    }
+    const data = await res.json()
+    return data.apps as DeveloperApp[]
+  }, [token])
+
+  const updateDeveloperApp = useCallback(async (id: number, payload: AppPublishPayload) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/developer/apps/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not update app" }))
+      throw { status: res.status, message: body.error || "Could not update app" }
+    }
+    const data = await res.json()
+    return data.app as DeveloperApp
+  }, [token])
+
+  const delistDeveloperApp = useCallback(async (id: number) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/developer/apps/${id}/delist`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not delist app" }))
+      throw { status: res.status, message: body.error || "Could not delist app" }
+    }
+    const data = await res.json()
+    return data.app as DeveloperApp
+  }, [token])
+
   return (
     <AuthContext.Provider
       value={{
@@ -281,6 +362,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshUser,
         upgradeToDeveloper,
         submitApp,
+        listDeveloperApps,
+        getDeveloperApp,
+        updateDeveloperApp,
+        delistDeveloperApp,
       }}
     >
       {children}
