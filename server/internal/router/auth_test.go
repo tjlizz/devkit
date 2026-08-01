@@ -1191,6 +1191,157 @@ func TestAppRejectionRequiresNote(t *testing.T) {
 	}
 }
 
+func TestAppPricingPlansFlow(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	userID := insertVerifiedUser(t, db, "dev@example.com", "old-password")
+	adminID := insertVerifiedUser(t, db, "admin@example.com", "old-password")
+	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", adminID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO developers(user_id, display_name) VALUES (?, ?)", userID, "Dev Studio"); err != nil {
+		t.Fatalf("insert developer: %v", err)
+	}
+	developerToken := loginToken(t, app, "dev@example.com", "old-password")
+	adminToken := loginToken(t, app, "admin@example.com", "old-password")
+
+	body := `{"name":"Pricing Pro","slug":"pricing-pro","tagline":"Tiered pricing for modern teams.","description":"An app with multiple pricing plans.","category":"developer-tools","priceCents":4900,"currency":"USD","iconUrl":"","coverImageUrl":"","demoUrl":"","docsUrl":"","sourceUrl":"","supportUrl":"","tags":["pricing"],"version":"1.0.0","releaseNotes":"Initial release.","plans":[{"name":"Free","priceCents":0,"currency":"USD","description":"For hobby projects.","features":["1 project","Community support"]},{"name":"Pro","priceCents":4900,"currency":"USD","description":"For teams that ship.","features":["Unlimited projects","Priority support"]}]}`
+	created := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/apps", body, developerToken)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("publish with plans status = %d, want %d; body = %s", created.Code, http.StatusCreated, created.Body.String())
+	}
+	var createdBody struct {
+		App struct {
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
+			Plans  []struct {
+				Name       string   `json:"name"`
+				PriceCents int64    `json:"priceCents"`
+				Currency   string   `json:"currency"`
+				SortOrder  int      `json:"sortOrder"`
+				Features   []string `json:"features"`
+			} `json:"plans"`
+		} `json:"app"`
+	}
+	if err := json.NewDecoder(created.Body).Decode(&createdBody); err != nil {
+		t.Fatalf("decode created app: %v", err)
+	}
+	if len(createdBody.App.Plans) != 2 {
+		t.Fatalf("created plans = %+v, want 2", createdBody.App.Plans)
+	}
+	if createdBody.App.Plans[0].Name != "Free" || createdBody.App.Plans[0].PriceCents != 0 || createdBody.App.Plans[0].SortOrder != 0 {
+		t.Fatalf("first plan = %+v, want Free $0 at order 0", createdBody.App.Plans[0])
+	}
+	if createdBody.App.Plans[1].Name != "Pro" || createdBody.App.Plans[1].PriceCents != 4900 || createdBody.App.Plans[1].SortOrder != 1 ||
+		len(createdBody.App.Plans[1].Features) != 2 || createdBody.App.Plans[1].Features[0] != "Unlimited projects" {
+		t.Fatalf("second plan = %+v, want Pro $49 with features", createdBody.App.Plans[1])
+	}
+	var planCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM app_plans WHERE app_id = ?", createdBody.App.ID).Scan(&planCount); err != nil {
+		t.Fatalf("count plans: %v", err)
+	}
+	if planCount != 2 {
+		t.Fatalf("app_plans rows = %d, want 2", planCount)
+	}
+
+	duplicateNames := `{"name":"Duplicate Plans","slug":"duplicate-plans","tagline":"Duplicate plan names.","description":"Description","category":"saas","priceCents":0,"currency":"USD","iconUrl":"","coverImageUrl":"","demoUrl":"","docsUrl":"","sourceUrl":"","supportUrl":"","tags":[],"version":"1.0.0","releaseNotes":"","plans":[{"name":"Plus","priceCents":1000,"currency":"USD","description":"","features":[]},{"name":"plus","priceCents":2000,"currency":"USD","description":"","features":[]}]}`
+	duplicate := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/apps", duplicateNames, developerToken)
+	if duplicate.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate plan names status = %d, want %d", duplicate.Code, http.StatusBadRequest)
+	}
+
+	negativePrice := `{"name":"Negative Plan","slug":"negative-plan","tagline":"Negative plan price.","description":"Description","category":"saas","priceCents":0,"currency":"USD","iconUrl":"","coverImageUrl":"","demoUrl":"","docsUrl":"","sourceUrl":"","supportUrl":"","tags":[],"version":"1.0.0","releaseNotes":"","plans":[{"name":"Plus","priceCents":-100,"currency":"USD","description":"","features":[]}]}`
+	negative := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/apps", negativePrice, developerToken)
+	if negative.Code != http.StatusBadRequest {
+		t.Fatalf("negative plan price status = %d, want %d", negative.Code, http.StatusBadRequest)
+	}
+
+	approved := performJSONRequestWithToken(
+		t,
+		app,
+		http.MethodPost,
+		"/api/v1/admin/apps/"+strconv.FormatInt(createdBody.App.ID, 10)+"/approve",
+		`{"reviewNote":"Approved."}`,
+		adminToken,
+	)
+	if approved.Code != http.StatusOK {
+		t.Fatalf("approve app status = %d, want %d; body = %s", approved.Code, http.StatusOK, approved.Body.String())
+	}
+
+	publicDetail := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps/pricing-pro", "")
+	if publicDetail.Code != http.StatusOK {
+		t.Fatalf("public detail status = %d, want %d; body = %s", publicDetail.Code, http.StatusOK, publicDetail.Body.String())
+	}
+	var publicBody struct {
+		App struct {
+			Plans []struct {
+				Name       string `json:"name"`
+				PriceCents int64  `json:"priceCents"`
+			} `json:"plans"`
+		} `json:"app"`
+	}
+	if err := json.NewDecoder(publicDetail.Body).Decode(&publicBody); err != nil {
+		t.Fatalf("decode public detail: %v", err)
+	}
+	if len(publicBody.App.Plans) != 2 || publicBody.App.Plans[0].Name != "Free" || publicBody.App.Plans[1].PriceCents != 4900 {
+		t.Fatalf("public plans = %+v, want Free and Pro $49", publicBody.App.Plans)
+	}
+
+	publicList := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps", "")
+	if publicList.Code != http.StatusOK {
+		t.Fatalf("public list status = %d, want %d; body = %s", publicList.Code, http.StatusOK, publicList.Body.String())
+	}
+	var publicListBody struct {
+		Apps []struct {
+			Slug  string `json:"slug"`
+			Plans []struct {
+				Name string `json:"name"`
+			} `json:"plans"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(publicList.Body).Decode(&publicListBody); err != nil {
+		t.Fatalf("decode public list: %v", err)
+	}
+	if len(publicListBody.Apps) != 1 || len(publicListBody.Apps[0].Plans) != 2 || publicListBody.Apps[0].Plans[0].Name != "Free" {
+		t.Fatalf("public list plans = %+v, want app with 2 plans", publicListBody.Apps)
+	}
+
+	updateBody := `{"name":"Pricing Pro","slug":"pricing-pro","tagline":"Tiered pricing for modern teams.","description":"An app with multiple pricing plans.","category":"developer-tools","priceCents":4900,"currency":"USD","iconUrl":"","coverImageUrl":"","demoUrl":"","docsUrl":"","sourceUrl":"","supportUrl":"","tags":["pricing"],"version":"1.1.0","releaseNotes":"New pricing.","plans":[{"name":"Starter","priceCents":0,"currency":"USD","description":"","features":["1 project"]},{"name":"Plus","priceCents":1900,"currency":"USD","description":"","features":["5 projects","Email support"]},{"name":"Pro","priceCents":4900,"currency":"USD","description":"","features":["Unlimited projects","Priority support"]}]}`
+	updated := performJSONRequestWithToken(t, app, http.MethodPut, "/api/v1/developer/apps/"+strconv.FormatInt(createdBody.App.ID, 10), updateBody, developerToken)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update with plans status = %d, want %d; body = %s", updated.Code, http.StatusOK, updated.Body.String())
+	}
+	var updatedBody struct {
+		App struct {
+			Status string `json:"status"`
+			Plans  []struct {
+				Name       string `json:"name"`
+				PriceCents int64  `json:"priceCents"`
+			} `json:"plans"`
+		} `json:"app"`
+	}
+	if err := json.NewDecoder(updated.Body).Decode(&updatedBody); err != nil {
+		t.Fatalf("decode updated app: %v", err)
+	}
+	if updatedBody.App.Status != "pending_review" {
+		t.Fatalf("updated app status = %q, want pending_review after plan change", updatedBody.App.Status)
+	}
+	if len(updatedBody.App.Plans) != 3 || updatedBody.App.Plans[0].Name != "Starter" || updatedBody.App.Plans[1].Name != "Plus" || updatedBody.App.Plans[2].Name != "Pro" {
+		t.Fatalf("replaced plans = %+v, want Starter/Plus/Pro", updatedBody.App.Plans)
+	}
+	var remaining int
+	if err := db.QueryRow("SELECT COUNT(*) FROM app_plans WHERE app_id = ?", createdBody.App.ID).Scan(&remaining); err != nil {
+		t.Fatalf("count replaced plans: %v", err)
+	}
+	if remaining != 3 {
+		t.Fatalf("app_plans rows after replace = %d, want 3", remaining)
+	}
+
+	publicHidden := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps/pricing-pro", "")
+	if publicHidden.Code != http.StatusNotFound {
+		t.Fatalf("public detail after plan change status = %d, want %d", publicHidden.Code, http.StatusNotFound)
+	}
+}
+
 func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	t.Helper()
 	db, err := database.Open(":memory:", migrations.Files)

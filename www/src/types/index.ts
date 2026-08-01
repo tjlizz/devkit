@@ -48,6 +48,15 @@ export interface ChangelogEntry {
   notes: string;
 }
 
+export interface AppPlan {
+  id?: number;
+  name: string;
+  priceCents: number;
+  currency: string;
+  description: string;
+  features: string[];
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -81,6 +90,7 @@ export interface Product {
   docsUrl: string;
   changelog: ChangelogEntry[];
   faq: ProductFaq[];
+  plans?: AppPlan[];
 }
 
 export interface Category {

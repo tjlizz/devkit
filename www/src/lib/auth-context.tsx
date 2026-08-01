@@ -57,6 +57,15 @@ export interface AppPublishPayload {
   tags: string[]
   version: string
   releaseNotes: string
+  plans: AppPlan[]
+}
+
+export interface AppPlan {
+  name: string
+  priceCents: number
+  currency: string
+  description: string
+  features: string[]
 }
 
 export interface DeveloperApp extends AppPublishPayload {

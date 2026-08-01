@@ -1,5 +1,18 @@
 import apiClient from './client'
 
+export interface AppPlan {
+  id: number
+  appId: number
+  name: string
+  priceCents: number
+  currency: string
+  description: string
+  features: string[]
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface MarketplaceApp {
   id: number
   developerId: number
@@ -28,6 +41,7 @@ export interface MarketplaceApp {
   publishedAt?: string
   createdAt: string
   updatedAt: string
+  plans: AppPlan[]
 }
 
 export interface AdminAppsResponse {

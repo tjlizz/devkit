@@ -30,6 +30,14 @@ function formatPrice(app) {
   }).format(app.priceCents / 100)
 }
 
+function formatPlanPrice(plan) {
+  if (plan.priceCents === 0) return 'Free'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: plan.currency,
+  }).format(plan.priceCents / 100)
+}
+
 async function loadApps() {
   loading.value = true
   try {
@@ -113,6 +121,18 @@ onMounted(loadApps)
                 <a-descriptions-item label="Slug">{{ item.slug }}</a-descriptions-item>
                 <a-descriptions-item label="Category">{{ item.category }}</a-descriptions-item>
                 <a-descriptions-item label="Price">{{ formatPrice(item) }}</a-descriptions-item>
+                <a-descriptions-item v-if="item.plans && item.plans.length > 0" label="Plans">
+                  <a-space direction="vertical" size="small">
+                    <a-space v-for="plan in item.plans" :key="plan.id" wrap>
+                      <a-tag color="blue">{{ plan.name }}</a-tag>
+                      <span>{{ formatPlanPrice(plan) }}</span>
+                      <template v-if="plan.description">
+                        <span class="plan-description">{{ plan.description }}</span>
+                      </template>
+                      <a-tag v-for="feature in plan.features" :key="feature" color="default">{{ feature }}</a-tag>
+                    </a-space>
+                  </a-space>
+                </a-descriptions-item>
                 <a-descriptions-item label="Tagline">{{ item.tagline }}</a-descriptions-item>
                 <a-descriptions-item label="Description">{{ item.description }}</a-descriptions-item>
                 <a-descriptions-item label="Version">{{ item.version }}</a-descriptions-item>
@@ -182,5 +202,10 @@ onMounted(loadApps)
 
 .review-note {
   margin: 16px 0;
+}
+
+.plan-description {
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
 }
 </style>

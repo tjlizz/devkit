@@ -1,6 +1,6 @@
 import { developerByUsername } from "@/lib/mock/developers";
 import { products } from "@/lib/mock/products";
-import type { CategorySlug, Developer, Product } from "@/types";
+import type { AppPlan, CategorySlug, Developer, Product } from "@/types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -30,6 +30,7 @@ interface ApiApp {
   publishedAt?: string;
   createdAt: string;
   updatedAt: string;
+  plans: AppPlan[];
 }
 
 function apiUrl(path: string) {
@@ -96,6 +97,7 @@ function toProduct(app: ApiApp): Product {
       ? [{ version: app.version, date: app.updatedAt, title: "Marketplace release", notes: app.releaseNotes }]
       : [],
     faq: [],
+    plans: app.plans,
   };
 }
 

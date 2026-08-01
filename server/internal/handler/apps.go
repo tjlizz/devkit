@@ -23,23 +23,45 @@ var appCategories = map[string]bool{
 	"open-source":     true,
 }
 
+type appPlanInput struct {
+	Name        string   `json:"name"`
+	PriceCents  int64    `json:"priceCents"`
+	Currency    string   `json:"currency"`
+	Description string   `json:"description"`
+	Features    []string `json:"features"`
+}
+
+type appPlan struct {
+	ID          int64    `json:"id"`
+	AppID       int64    `json:"appId"`
+	Name        string   `json:"name"`
+	PriceCents  int64    `json:"priceCents"`
+	Currency    string   `json:"currency"`
+	Description string   `json:"description"`
+	Features    []string `json:"features"`
+	SortOrder   int      `json:"sortOrder"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
+}
+
 type appPublishRequest struct {
-	Name          string   `json:"name"`
-	Slug          string   `json:"slug"`
-	Tagline       string   `json:"tagline"`
-	Description   string   `json:"description"`
-	Category      string   `json:"category"`
-	PriceCents    int64    `json:"priceCents"`
-	Currency      string   `json:"currency"`
-	IconURL       string   `json:"iconUrl"`
-	CoverImageURL string   `json:"coverImageUrl"`
-	DemoURL       string   `json:"demoUrl"`
-	DocsURL       string   `json:"docsUrl"`
-	SourceURL     string   `json:"sourceUrl"`
-	SupportURL    string   `json:"supportUrl"`
-	Tags          []string `json:"tags"`
-	Version       string   `json:"version"`
-	ReleaseNotes  string   `json:"releaseNotes"`
+	Name          string         `json:"name"`
+	Slug          string         `json:"slug"`
+	Tagline       string         `json:"tagline"`
+	Description   string         `json:"description"`
+	Category      string         `json:"category"`
+	PriceCents    int64          `json:"priceCents"`
+	Currency      string         `json:"currency"`
+	IconURL       string         `json:"iconUrl"`
+	CoverImageURL string         `json:"coverImageUrl"`
+	DemoURL       string         `json:"demoUrl"`
+	DocsURL       string         `json:"docsUrl"`
+	SourceURL     string         `json:"sourceUrl"`
+	SupportURL    string         `json:"supportUrl"`
+	Tags          []string       `json:"tags"`
+	Version       string         `json:"version"`
+	ReleaseNotes  string         `json:"releaseNotes"`
+	Plans         []appPlanInput `json:"plans"`
 }
 
 type appReviewRequest struct {
@@ -47,33 +69,34 @@ type appReviewRequest struct {
 }
 
 type marketplaceApp struct {
-	ID             int64    `json:"id"`
-	DeveloperID    int64    `json:"developerId"`
-	DeveloperName  string   `json:"developerName"`
-	DeveloperEmail string   `json:"developerEmail,omitempty"`
-	Name           string   `json:"name"`
-	Slug           string   `json:"slug"`
-	Tagline        string   `json:"tagline"`
-	Description    string   `json:"description"`
-	Category       string   `json:"category"`
-	PriceCents     int64    `json:"priceCents"`
-	Currency       string   `json:"currency"`
-	IconURL        string   `json:"iconUrl"`
-	CoverImageURL  string   `json:"coverImageUrl"`
-	DemoURL        string   `json:"demoUrl"`
-	DocsURL        string   `json:"docsUrl"`
-	SourceURL      string   `json:"sourceUrl"`
-	SupportURL     string   `json:"supportUrl"`
-	Tags           []string `json:"tags"`
-	Version        string   `json:"version"`
-	ReleaseNotes   string   `json:"releaseNotes"`
-	Status         string   `json:"status"`
-	ReviewNote     string   `json:"reviewNote"`
-	ReviewedBy     *int64   `json:"reviewedBy,omitempty"`
-	ReviewedAt     string   `json:"reviewedAt,omitempty"`
-	PublishedAt    string   `json:"publishedAt,omitempty"`
-	CreatedAt      string   `json:"createdAt"`
-	UpdatedAt      string   `json:"updatedAt"`
+	ID             int64     `json:"id"`
+	DeveloperID    int64     `json:"developerId"`
+	DeveloperName  string    `json:"developerName"`
+	DeveloperEmail string    `json:"developerEmail,omitempty"`
+	Name           string    `json:"name"`
+	Slug           string    `json:"slug"`
+	Tagline        string    `json:"tagline"`
+	Description    string    `json:"description"`
+	Category       string    `json:"category"`
+	PriceCents     int64     `json:"priceCents"`
+	Currency       string    `json:"currency"`
+	IconURL        string    `json:"iconUrl"`
+	CoverImageURL  string    `json:"coverImageUrl"`
+	DemoURL        string    `json:"demoUrl"`
+	DocsURL        string    `json:"docsUrl"`
+	SourceURL      string    `json:"sourceUrl"`
+	SupportURL     string    `json:"supportUrl"`
+	Tags           []string  `json:"tags"`
+	Version        string    `json:"version"`
+	ReleaseNotes   string    `json:"releaseNotes"`
+	Status         string    `json:"status"`
+	ReviewNote     string    `json:"reviewNote"`
+	ReviewedBy     *int64    `json:"reviewedBy,omitempty"`
+	ReviewedAt     string    `json:"reviewedAt,omitempty"`
+	PublishedAt    string    `json:"publishedAt,omitempty"`
+	CreatedAt      string    `json:"createdAt"`
+	UpdatedAt      string    `json:"updatedAt"`
+	Plans          []appPlan `json:"plans"`
 }
 
 func (h *Auth) CreateApp(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +131,15 @@ func (h *Auth) createAppForDeveloper(w http.ResponseWriter, r *http.Request, dev
 		return
 	}
 
-	result, err := h.db.ExecContext(
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "begin create app tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not publish app")
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(
 		r.Context(),
 		`INSERT INTO apps(developer_id, name, slug, tagline, description, category, price_cents,
 		    currency, icon_url, cover_image_url, demo_url, docs_url, source_url, support_url,
@@ -131,6 +162,16 @@ func (h *Auth) createAppForDeveloper(w http.ResponseWriter, r *http.Request, dev
 	appID, err := result.LastInsertId()
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "read app id", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not publish app")
+		return
+	}
+	if err := h.replacePlans(r, tx, appID, request.Plans); err != nil {
+		h.logger.ErrorContext(r.Context(), "insert app plans", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not publish app")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), "commit create app tx", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not publish app")
 		return
 	}
@@ -252,7 +293,15 @@ func (h *Auth) UpdateDeveloperApp(w http.ResponseWriter, r *http.Request) {
 	if current.Status == "approved" {
 		nextStatus = "pending_review"
 	}
-	_, err = h.db.ExecContext(
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "begin update app tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update app")
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(
 		r.Context(),
 		`UPDATE apps
 		 SET name = ?, slug = ?, tagline = ?, description = ?, category = ?, price_cents = ?,
@@ -275,6 +324,16 @@ func (h *Auth) UpdateDeveloperApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.ErrorContext(r.Context(), "update developer app", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update app")
+		return
+	}
+	if err := h.replacePlans(r, tx, appID, request.Plans); err != nil {
+		h.logger.ErrorContext(r.Context(), "replace app plans", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update app")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), "commit update app tx", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not update app")
 		return
 	}
@@ -536,6 +595,28 @@ func normalizeAppPublishRequest(request *appPublishRequest) {
 	if request.Currency == "" {
 		request.Currency = "USD"
 	}
+	cleanPlans := make([]appPlanInput, 0, len(request.Plans))
+	for _, plan := range request.Plans {
+		plan.Name = strings.TrimSpace(plan.Name)
+		plan.Description = strings.TrimSpace(plan.Description)
+		plan.Currency = strings.ToUpper(strings.TrimSpace(plan.Currency))
+		if plan.Currency == "" {
+			plan.Currency = "USD"
+		}
+		cleanFeatures := make([]string, 0, len(plan.Features))
+		featureSeen := map[string]bool{}
+		for _, feature := range plan.Features {
+			feature = strings.TrimSpace(feature)
+			key := strings.ToLower(feature)
+			if feature != "" && !featureSeen[key] {
+				cleanFeatures = append(cleanFeatures, feature)
+				featureSeen[key] = true
+			}
+		}
+		plan.Features = cleanFeatures
+		cleanPlans = append(cleanPlans, plan)
+	}
+	request.Plans = cleanPlans
 }
 
 func validateAppPublishRequest(request appPublishRequest) error {
@@ -568,6 +649,37 @@ func validateAppPublishRequest(request appPublishRequest) error {
 	}
 	if utf8.RuneCountInString(request.ReleaseNotes) > 2000 {
 		return errors.New("releaseNotes must not exceed 2000 characters")
+	}
+	if len(request.Plans) > 8 {
+		return errors.New("plans must not exceed 8 items")
+	}
+	planNames := map[string]bool{}
+	for _, plan := range request.Plans {
+		if plan.Name == "" || utf8.RuneCountInString(plan.Name) > 60 {
+			return errors.New("plan name is required and must not exceed 60 characters")
+		}
+		nameKey := strings.ToLower(plan.Name)
+		if planNames[nameKey] {
+			return errors.New("plan names must be unique")
+		}
+		planNames[nameKey] = true
+		if plan.PriceCents < 0 {
+			return errors.New("plan priceCents must be zero or greater")
+		}
+		if plan.Currency != "USD" {
+			return errors.New("plan currency must be USD")
+		}
+		if utf8.RuneCountInString(plan.Description) > 1000 {
+			return errors.New("plan description must not exceed 1000 characters")
+		}
+		if len(plan.Features) > 20 {
+			return errors.New("plan features must not exceed 20 items")
+		}
+		for _, feature := range plan.Features {
+			if utf8.RuneCountInString(feature) > 200 {
+				return errors.New("plan features must not exceed 200 characters each")
+			}
+		}
 	}
 	return nil
 }
@@ -630,7 +742,7 @@ func (h *Auth) readApp(r *http.Request, appID int64, includeEmail bool) (marketp
 		 WHERE a.id = ?`,
 		appID,
 	)
-	return scanApp(row)
+	return h.scanAppWithPlans(r, row)
 }
 
 func (h *Auth) readDeveloperApp(r *http.Request, appID int64, developerID int64) (marketplaceApp, error) {
@@ -646,7 +758,7 @@ func (h *Auth) readDeveloperApp(r *http.Request, appID int64, developerID int64)
 		 WHERE a.id = ? AND a.developer_id = ?`,
 		appID, developerID,
 	)
-	return scanApp(row)
+	return h.scanAppWithPlans(r, row)
 }
 
 func (h *Auth) requireDeveloperID(w http.ResponseWriter, r *http.Request, userID int64) (int64, bool) {
@@ -676,7 +788,7 @@ func (h *Auth) readAppBySlug(r *http.Request, slug string) (marketplaceApp, erro
 		 WHERE a.slug = ? AND a.status = 'approved'`,
 		slug,
 	)
-	return scanApp(row)
+	return h.scanAppWithPlans(r, row)
 }
 
 func (h *Auth) queryApps(r *http.Request, query string, _ bool, args ...any) ([]marketplaceApp, error) {
@@ -684,16 +796,97 @@ func (h *Auth) queryApps(r *http.Request, query string, _ bool, args ...any) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	apps := make([]marketplaceApp, 0)
 	for rows.Next() {
 		app, err := scanApp(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		apps = append(apps, app)
 	}
-	return apps, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for i := range apps {
+		plans, err := h.loadPlans(r, apps[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		apps[i].Plans = plans
+	}
+	return apps, nil
+}
+
+func (h *Auth) scanAppWithPlans(r *http.Request, scanner appScanner) (marketplaceApp, error) {
+	app, err := scanApp(scanner)
+	if err != nil {
+		return marketplaceApp{}, err
+	}
+	plans, err := h.loadPlans(r, app.ID)
+	if err != nil {
+		return marketplaceApp{}, err
+	}
+	app.Plans = plans
+	return app, nil
+}
+
+func (h *Auth) loadPlans(r *http.Request, appID int64) ([]appPlan, error) {
+	rows, err := h.db.QueryContext(
+		r.Context(),
+		`SELECT id, app_id, name, price_cents, currency, description, features, sort_order,
+		        created_at, updated_at
+		 FROM app_plans
+		 WHERE app_id = ?
+		 ORDER BY sort_order ASC, id ASC`,
+		appID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	plans := make([]appPlan, 0)
+	for rows.Next() {
+		var plan appPlan
+		var featuresJSON string
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(
+			&plan.ID, &plan.AppID, &plan.Name, &plan.PriceCents, &plan.Currency, &plan.Description,
+			&featuresJSON, &plan.SortOrder, &createdAt, &updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(featuresJSON), &plan.Features); err != nil {
+			plan.Features = []string{}
+		}
+		plan.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		plan.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
+		plans = append(plans, plan)
+	}
+	return plans, rows.Err()
+}
+
+func (h *Auth) replacePlans(r *http.Request, tx *sql.Tx, appID int64, plans []appPlanInput) error {
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM app_plans WHERE app_id = ?`, appID); err != nil {
+		return err
+	}
+	for index, plan := range plans {
+		featuresJSON, err := json.Marshal(plan.Features)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(
+			r.Context(),
+			`INSERT INTO app_plans(app_id, name, price_cents, currency, description, features, sort_order)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			appID, plan.Name, plan.PriceCents, plan.Currency, plan.Description, string(featuresJSON), index,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type appScanner interface {

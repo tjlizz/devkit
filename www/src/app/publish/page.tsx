@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
+import { PricingPlansEditor, type PlanDraft } from "@/components/pricing-plans-editor"
 
 const categories = [
   { label: "SaaS", value: "saas" },
@@ -44,6 +45,7 @@ export default function PublishPage() {
     tags: "",
     version: "1.0.0",
     releaseNotes: "",
+    plans: [] as PlanDraft[],
   })
 
   useEffect(() => {
@@ -102,6 +104,13 @@ export default function PublishPage() {
         tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
         version: form.version,
         releaseNotes: form.releaseNotes,
+        plans: form.plans.map((plan) => ({
+          name: plan.name,
+          priceCents: Math.round(Number(plan.price || "0") * 100),
+          currency: "USD",
+          description: plan.description,
+          features: plan.features.split(",").map((feature) => feature.trim()).filter(Boolean),
+        })),
       })
       setSuccess(true)
     } catch (err: any) {
@@ -158,6 +167,10 @@ export default function PublishPage() {
             <input className="mt-2 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-zinc-950" type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} />
           </label>
         </div>
+        <PricingPlansEditor
+          plans={form.plans}
+          onChange={(plans) => setForm({ ...form, plans })}
+        />
         <div className="grid gap-5 sm:grid-cols-2">
           {(["iconUrl", "coverImageUrl", "demoUrl", "docsUrl", "sourceUrl", "supportUrl"] as const).map((field) => (
             <label key={field} className="text-sm font-medium">
