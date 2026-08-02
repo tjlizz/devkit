@@ -19,7 +19,8 @@ export default function LoginPage() {
     setError("")
     try {
       await login(email, password)
-      router.push("/")
+      const nextPath = new URLSearchParams(window.location.search).get("next")
+      router.push(nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/")
     } catch (err: any) {
       if (err.status === 403) {
         setError("Email not verified. Please check your activation link.")

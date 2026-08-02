@@ -58,6 +58,8 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.Handle("POST /api/v1/admin/apps/{id}/reject", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.RejectApp)))
 		mux.HandleFunc("GET /api/v1/marketplace/apps", authHandler.ListMarketplaceApps)
 		mux.HandleFunc("GET /api/v1/marketplace/apps/{slug}", authHandler.GetMarketplaceApp)
+		mux.Handle("GET /api/v1/marketplace/apps/{slug}/favorite", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.GetMarketplaceFavorite)))
+		mux.Handle("POST /api/v1/marketplace/apps/{slug}/favorite", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ToggleMarketplaceFavorite)))
 		mux.Handle("GET /api/v1/uploads/avatars/", http.StripPrefix("/api/v1/uploads/avatars/", http.FileServer(http.Dir(configured.auth.AvatarUploadDir))))
 	}
 

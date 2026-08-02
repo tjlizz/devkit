@@ -7,9 +7,9 @@ import {
   ArrowUpRightIcon,
   CheckIcon,
   ExternalLinkIcon,
-  HeartIcon,
   StarIcon,
 } from "@/components/icons";
+import { FavoriteButton } from "@/components/favorite-button";
 import { PricingCard } from "@/components/pricing-card";
 import ProductCard from "@/components/ProductCard";
 import { ProductScreenshots } from "@/components/product-screenshots";
@@ -209,10 +209,11 @@ export default async function ProductPage({ params }: ProductPageProps) {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button className="inline-flex h-10 items-center gap-2 rounded-full border border-zinc-200 px-4 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5">
-                <HeartIcon className="size-4" />
-                {formatNumber(product.favorites)}
-              </button>
+              <FavoriteButton
+                slug={product.slug}
+                initialCount={product.favorites}
+                interactive={/^\d+$/.test(product.id)}
+              />
               <button className="inline-flex h-10 items-center gap-2 rounded-full border border-zinc-200 px-4 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5">
                 Share
                 <ArrowUpRightIcon className="size-4" />

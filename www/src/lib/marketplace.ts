@@ -30,6 +30,7 @@ interface ApiApp {
   publishedAt?: string;
   createdAt: string;
   updatedAt: string;
+  favoriteCount: number;
   plans: AppPlan[];
 }
 
@@ -78,7 +79,7 @@ function toProduct(app: ApiApp): Product {
     createdAt: app.publishedAt || app.createdAt,
     updatedAt: app.updatedAt,
     sales: 0,
-    favorites: 0,
+    favorites: app.favoriteCount,
     rating: 5,
     reviewCount: 0,
     featured: true,

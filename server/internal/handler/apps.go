@@ -96,7 +96,13 @@ type marketplaceApp struct {
 	PublishedAt    string    `json:"publishedAt,omitempty"`
 	CreatedAt      string    `json:"createdAt"`
 	UpdatedAt      string    `json:"updatedAt"`
+	FavoriteCount  int       `json:"favoriteCount"`
 	Plans          []appPlan `json:"plans"`
+}
+
+type marketplaceFavorite struct {
+	Favorited     bool `json:"favorited"`
+	FavoriteCount int  `json:"favoriteCount"`
 }
 
 func (h *Auth) CreateApp(w http.ResponseWriter, r *http.Request) {
@@ -566,6 +572,113 @@ func (h *Auth) GetMarketplaceApp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]marketplaceApp{"app": app})
 }
 
+func (h *Auth) GetMarketplaceFavorite(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	appID, ok := h.approvedAppIDBySlug(w, r)
+	if !ok {
+		return
+	}
+	state, err := h.readFavorite(r, userID, appID)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read marketplace favorite", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read favorite")
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (h *Auth) ToggleMarketplaceFavorite(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	appID, ok := h.approvedAppIDBySlug(w, r)
+	if !ok {
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "begin favorite tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update favorite")
+		return
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(
+		r.Context(),
+		`INSERT INTO app_favorites(user_id, app_id) VALUES (?, ?)
+		 ON CONFLICT(user_id, app_id) DO NOTHING`,
+		userID, appID,
+	)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "create favorite", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update favorite")
+		return
+	}
+	created, err := result.RowsAffected()
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read favorite result", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update favorite")
+		return
+	}
+	favorited := created == 1
+	if !favorited {
+		if _, err := tx.ExecContext(r.Context(), "DELETE FROM app_favorites WHERE user_id = ? AND app_id = ?", userID, appID); err != nil {
+			h.logger.ErrorContext(r.Context(), "delete favorite", "error", err)
+			writeError(w, http.StatusInternalServerError, "could not update favorite")
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), "commit favorite tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update favorite")
+		return
+	}
+	state, err := h.readFavorite(r, userID, appID)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read updated favorite", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not update favorite")
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (h *Auth) approvedAppIDBySlug(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	slug := strings.TrimSpace(r.PathValue("slug"))
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid app slug")
+		return 0, false
+	}
+	var appID int64
+	err := h.db.QueryRowContext(r.Context(), "SELECT id FROM apps WHERE slug = ? AND status = 'approved'", slug).Scan(&appID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "app not found")
+		return 0, false
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read favorite app", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read app")
+		return 0, false
+	}
+	return appID, true
+}
+
+func (h *Auth) readFavorite(r *http.Request, userID, appID int64) (marketplaceFavorite, error) {
+	var state marketplaceFavorite
+	err := h.db.QueryRowContext(
+		r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM app_favorites WHERE user_id = ? AND app_id = ?),
+		        (SELECT COUNT(*) FROM app_favorites WHERE app_id = ?)`,
+		userID, appID, appID,
+	).Scan(&state.Favorited, &state.FavoriteCount)
+	return state, err
+}
+
 func normalizeAppPublishRequest(request *appPublishRequest) {
 	request.Name = strings.TrimSpace(request.Name)
 	request.Slug = strings.ToLower(strings.TrimSpace(request.Slug))
@@ -816,6 +929,9 @@ func (h *Auth) queryApps(r *http.Request, query string, _ bool, args ...any) ([]
 			return nil, err
 		}
 		apps[i].Plans = plans
+		if err := h.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM app_favorites WHERE app_id = ?", apps[i].ID).Scan(&apps[i].FavoriteCount); err != nil {
+			return nil, err
+		}
 	}
 	return apps, nil
 }
@@ -830,6 +946,9 @@ func (h *Auth) scanAppWithPlans(r *http.Request, scanner appScanner) (marketplac
 		return marketplaceApp{}, err
 	}
 	app.Plans = plans
+	if err := h.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM app_favorites WHERE app_id = ?", app.ID).Scan(&app.FavoriteCount); err != nil {
+		return marketplaceApp{}, err
+	}
 	return app, nil
 }
 

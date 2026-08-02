@@ -1342,6 +1342,132 @@ func TestAppPricingPlansFlow(t *testing.T) {
 	}
 }
 
+func TestMarketplaceFavoriteFlow(t *testing.T) {
+	db, app := newAuthTestApp(t)
+	developerUserID := insertVerifiedUser(t, db, "developer@example.com", "old-password")
+	firstBuyerID := insertVerifiedUser(t, db, "buyer-one@example.com", "old-password")
+	insertVerifiedUser(t, db, "buyer-two@example.com", "old-password")
+	developerResult, err := db.Exec("INSERT INTO developers(user_id, display_name) VALUES (?, ?)", developerUserID, "Favorite Studio")
+	if err != nil {
+		t.Fatalf("insert developer: %v", err)
+	}
+	developerID, err := developerResult.LastInsertId()
+	if err != nil {
+		t.Fatalf("read developer ID: %v", err)
+	}
+	appResult, err := db.Exec(
+		`INSERT INTO apps(developer_id, name, slug, tagline, description, category, price_cents,
+		 currency, version, status, published_at)
+		 VALUES (?, 'Favorite App', 'favorite-app', 'A favorite-ready app.', 'Approved marketplace app.',
+		 'developer-tools', 1900, 'USD', '1.0.0', 'approved', CURRENT_TIMESTAMP)`,
+		developerID,
+	)
+	if err != nil {
+		t.Fatalf("insert approved app: %v", err)
+	}
+	approvedAppID, err := appResult.LastInsertId()
+	if err != nil {
+		t.Fatalf("read app ID: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO apps(developer_id, name, slug, tagline, description, category, price_cents,
+		 currency, version, status)
+		 VALUES (?, 'Pending App', 'pending-favorite-app', 'Not public yet.', 'Pending review.',
+		 'developer-tools', 0, 'USD', '1.0.0', 'pending_review')`,
+		developerID,
+	); err != nil {
+		t.Fatalf("insert pending app: %v", err)
+	}
+
+	unauthenticated := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps/favorite-app/favorite", "")
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated favorite status = %d, want %d", unauthenticated.Code, http.StatusUnauthorized)
+	}
+
+	firstToken := loginToken(t, app, "buyer-one@example.com", "old-password")
+	secondToken := loginToken(t, app, "buyer-two@example.com", "old-password")
+	pending := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/marketplace/apps/pending-favorite-app/favorite", "", firstToken)
+	if pending.Code != http.StatusNotFound {
+		t.Fatalf("pending app favorite status = %d, want %d", pending.Code, http.StatusNotFound)
+	}
+
+	type favoriteResponse struct {
+		Favorited     bool `json:"favorited"`
+		FavoriteCount int  `json:"favoriteCount"`
+	}
+	decodeFavorite := func(response *httptest.ResponseRecorder) favoriteResponse {
+		t.Helper()
+		var body favoriteResponse
+		if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+			t.Fatalf("decode favorite response: %v", err)
+		}
+		return body
+	}
+
+	initial := performJSONRequestWithToken(t, app, http.MethodGet, "/api/v1/marketplace/apps/favorite-app/favorite", "", firstToken)
+	if initial.Code != http.StatusOK {
+		t.Fatalf("initial favorite status = %d, want %d; body = %s", initial.Code, http.StatusOK, initial.Body.String())
+	}
+	if state := decodeFavorite(initial); state.Favorited || state.FavoriteCount != 0 {
+		t.Fatalf("initial favorite = %+v, want false and zero", state)
+	}
+
+	created := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/marketplace/apps/favorite-app/favorite", "", firstToken)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create favorite status = %d, want %d; body = %s", created.Code, http.StatusOK, created.Body.String())
+	}
+	if state := decodeFavorite(created); !state.Favorited || state.FavoriteCount != 1 {
+		t.Fatalf("created favorite = %+v, want true and one", state)
+	}
+
+	removed := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/marketplace/apps/favorite-app/favorite", "", firstToken)
+	if state := decodeFavorite(removed); state.Favorited || state.FavoriteCount != 0 {
+		t.Fatalf("removed favorite = %+v, want false and zero", state)
+	}
+
+	performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/marketplace/apps/favorite-app/favorite", "", firstToken)
+	secondCreated := performJSONRequestWithToken(t, app, http.MethodPost, "/api/v1/marketplace/apps/favorite-app/favorite", "", secondToken)
+	if state := decodeFavorite(secondCreated); !state.Favorited || state.FavoriteCount != 2 {
+		t.Fatalf("second buyer favorite = %+v, want true and two", state)
+	}
+	var storedCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM app_favorites WHERE app_id = ?", approvedAppID).Scan(&storedCount); err != nil {
+		t.Fatalf("count stored favorites: %v", err)
+	}
+	if storedCount != 2 {
+		t.Fatalf("stored favorites = %d, want 2", storedCount)
+	}
+	var firstBuyerRows int
+	if err := db.QueryRow("SELECT COUNT(*) FROM app_favorites WHERE app_id = ? AND user_id = ?", approvedAppID, firstBuyerID).Scan(&firstBuyerRows); err != nil {
+		t.Fatalf("count first buyer favorites: %v", err)
+	}
+	if firstBuyerRows != 1 {
+		t.Fatalf("first buyer favorite rows = %d, want 1", firstBuyerRows)
+	}
+
+	publicList := performJSONRequest(t, app, http.MethodGet, "/api/v1/marketplace/apps", "")
+	var listBody struct {
+		Apps []struct {
+			Slug          string `json:"slug"`
+			FavoriteCount int    `json:"favoriteCount"`
+		} `json:"apps"`
+	}
+	if err := json.NewDecoder(publicList.Body).Decode(&listBody); err != nil {
+		t.Fatalf("decode public apps: %v", err)
+	}
+	if len(listBody.Apps) != 1 || listBody.Apps[0].Slug != "favorite-app" || listBody.Apps[0].FavoriteCount != 2 {
+		t.Fatalf("public apps = %+v, want favorite-app with two favorites", listBody.Apps)
+	}
+
+	if _, err := db.Exec("UPDATE apps SET status = 'delisted', published_at = NULL WHERE id = ?", approvedAppID); err != nil {
+		t.Fatalf("delist app: %v", err)
+	}
+	hidden := performJSONRequestWithToken(t, app, http.MethodGet, "/api/v1/marketplace/apps/favorite-app/favorite", "", firstToken)
+	if hidden.Code != http.StatusNotFound {
+		t.Fatalf("delisted app favorite status = %d, want %d", hidden.Code, http.StatusNotFound)
+	}
+}
+
 func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	t.Helper()
 	db, err := database.Open(":memory:", migrations.Files)
