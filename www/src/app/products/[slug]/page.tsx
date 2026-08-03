@@ -22,6 +22,7 @@ import { developerByUsername } from "@/lib/mock/developers";
 import { products } from "@/lib/mock/products";
 import { getMarketplaceProduct } from "@/lib/marketplace";
 import { absoluteUrl, siteConfig } from "@/lib/site";
+import { tagToSlug } from "@/lib/tags";
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>;
@@ -288,6 +289,22 @@ export default async function ProductPage({ params }: ProductPageProps) {
                   </li>
                 ))}
               </ul>
+            </div>
+            <div className="sm:col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">
+                Discover more
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {product.tags.map((tag) => (
+                  <Link
+                    key={tag}
+                    href={`/tag/${tagToSlug(tag)}`}
+                    className="rounded-full border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-950 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-white/25 dark:hover:text-white"
+                  >
+                    #{tag}
+                  </Link>
+                ))}
+              </div>
             </div>
           </section>
 

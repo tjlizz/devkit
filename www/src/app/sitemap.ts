@@ -3,6 +3,7 @@ import { categories } from "@/lib/mock/categories";
 import { developers } from "@/lib/mock/developers";
 import { products } from "@/lib/mock/products";
 import { absoluteUrl } from "@/lib/site";
+import { tagsFromProducts } from "@/lib/tags";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
@@ -39,6 +40,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: now,
       changeFrequency: "weekly" as const,
       priority: 0.75,
+    })),
+    ...tagsFromProducts(products).map((tag) => ({
+      url: absoluteUrl(`/tag/${tag.slug}`),
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.65,
     })),
   ];
 }
