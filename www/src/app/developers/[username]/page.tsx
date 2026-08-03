@@ -3,7 +3,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
-  ArrowUpRightIcon,
   CalendarIcon,
   CheckIcon,
   ExternalLinkIcon,
@@ -11,6 +10,7 @@ import {
   MapPinIcon,
 } from "@/components/icons";
 import ProductCard from "@/components/ProductCard";
+import { ShareButton } from "@/components/share-button";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { JsonLd } from "@/lib/json-ld";
 import { createMetadata } from "@/lib/metadata";
@@ -179,12 +179,11 @@ export default async function DeveloperPage({ params }: DeveloperPageProps) {
               <button className="inline-flex h-11 items-center rounded-full bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200">
                 Follow developer
               </button>
-              <button
-                className="flex size-11 items-center justify-center rounded-full border border-zinc-200 text-zinc-600 transition hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5"
-                aria-label="Share profile"
-              >
-                <ArrowUpRightIcon className="size-4" />
-              </button>
+              <ShareButton
+                title={`${developer.name} on DevKit`}
+                text={developer.bio}
+                iconOnly
+              />
             </div>
           </div>
         </div>

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowRightIcon,
-  ArrowUpRightIcon,
   CheckIcon,
   ExternalLinkIcon,
   StarIcon,
@@ -13,6 +12,7 @@ import { FavoriteButton } from "@/components/favorite-button";
 import { PricingCard } from "@/components/pricing-card";
 import ProductCard from "@/components/ProductCard";
 import { ProductScreenshots } from "@/components/product-screenshots";
+import { ShareButton } from "@/components/share-button";
 import { VerifiedBadge } from "@/components/ui/verified-badge";
 import { formatDate, formatNumber } from "@/lib/format";
 import { JsonLd } from "@/lib/json-ld";
@@ -215,10 +215,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
                 initialCount={product.favorites}
                 interactive={/^\d+$/.test(product.id)}
               />
-              <button className="inline-flex h-10 items-center gap-2 rounded-full border border-zinc-200 px-4 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5">
-                Share
-                <ArrowUpRightIcon className="size-4" />
-              </button>
+              <ShareButton title={product.name} text={product.tagline} />
             </div>
           </div>
         </div>
