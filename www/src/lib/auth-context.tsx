@@ -38,6 +38,56 @@ interface AuthContextValue {
   getDeveloperApp: (id: number) => Promise<DeveloperApp>
   updateDeveloperApp: (id: number, payload: AppPublishPayload) => Promise<DeveloperApp>
   delistDeveloperApp: (id: number) => Promise<DeveloperApp>
+  checkoutApp: (slug: string, planId?: number) => Promise<Order>
+  confirmPayment: (orderId: number) => Promise<{ order: Order; entitlement: Entitlement }>
+  listMyOrders: () => Promise<Order[]>
+  listMyEntitlements: () => Promise<Entitlement[]>
+  getDelivery: (entitlementId: number) => Promise<Delivery>
+}
+
+export interface Order {
+  id: number
+  buyerId: number
+  appId: number
+  appSlug: string
+  appName: string
+  planId?: number
+  planName: string
+  priceCents: number
+  currency: string
+  status: "pending" | "paid" | "refunded" | "cancelled"
+  provider: string
+  providerEventId: string
+  paidAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Entitlement {
+  id: number
+  buyerId: number
+  appId: number
+  appSlug: string
+  appName: string
+  planId?: number
+  planName: string
+  orderId: number
+  status: "active" | "revoked"
+  grantedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Delivery {
+  entitlementId: number
+  appSlug: string
+  appName: string
+  version: string
+  sourceUrl: string
+  docsUrl: string
+  demoUrl: string
+  deliveryToken: string
+  expiresAt: string
 }
 
 export interface AppPublishPayload {
@@ -353,6 +403,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.app as DeveloperApp
   }, [token])
 
+  const checkoutApp = useCallback(async (slug: string, planId?: number) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/marketplace/apps/${encodeURIComponent(slug)}/checkout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body: JSON.stringify(planId ? { planId } : {}),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Checkout failed" }))
+      throw { status: res.status, message: body.error || "Checkout failed" }
+    }
+    const data = await res.json()
+    return data.order as Order
+  }, [token])
+
+  const confirmPayment = useCallback(async (orderId: number) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/orders/${orderId}/confirm-payment`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Payment confirmation failed" }))
+      throw { status: res.status, message: body.error || "Payment confirmation failed" }
+    }
+    const data = await res.json()
+    return data as { order: Order; entitlement: Entitlement }
+  }, [token])
+
+  const listMyOrders = useCallback(async () => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/me/orders`, {
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not load orders" }))
+      throw { status: res.status, message: body.error || "Could not load orders" }
+    }
+    const data = await res.json()
+    return data.orders as Order[]
+  }, [token])
+
+  const listMyEntitlements = useCallback(async () => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/me/entitlements`, {
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not load entitlements" }))
+      throw { status: res.status, message: body.error || "Could not load entitlements" }
+    }
+    const data = await res.json()
+    return data.entitlements as Entitlement[]
+  }, [token])
+
+  const getDelivery = useCallback(async (entitlementId: number) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/entitlements/${entitlementId}/delivery`, {
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not get delivery" }))
+      throw { status: res.status, message: body.error || "Could not get delivery" }
+    }
+    return (await res.json()) as Delivery
+  }, [token])
+
   return (
     <AuthContext.Provider
       value={{
@@ -375,6 +503,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         getDeveloperApp,
         updateDeveloperApp,
         delistDeveloperApp,
+        checkoutApp,
+        confirmPayment,
+        listMyOrders,
+        listMyEntitlements,
+        getDelivery,
       }}
     >
       {children}

@@ -94,6 +94,13 @@ export default function Navbar() {
                   </>
                 ) : null}
                 <Link
+                  href="/purchases"
+                  onClick={closeCurrentMenu}
+                  className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+                >
+                  My purchases
+                </Link>
+                <Link
                   href="/profile-settings"
                   onClick={closeCurrentMenu}
                   className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
@@ -178,6 +185,13 @@ export default function Navbar() {
                     </Link>
                   </>
                 ) : null}
+                <Link
+                  href="/purchases"
+                  onClick={closeCurrentMenu}
+                  className="block rounded-xl px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-white/5"
+                >
+                  My purchases
+                </Link>
                 <Link
                   href="/profile-settings"
                   onClick={closeCurrentMenu}

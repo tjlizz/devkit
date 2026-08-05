@@ -60,6 +60,11 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.HandleFunc("GET /api/v1/marketplace/apps/{slug}", authHandler.GetMarketplaceApp)
 		mux.Handle("GET /api/v1/marketplace/apps/{slug}/favorite", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.GetMarketplaceFavorite)))
 		mux.Handle("POST /api/v1/marketplace/apps/{slug}/favorite", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ToggleMarketplaceFavorite)))
+		mux.Handle("POST /api/v1/marketplace/apps/{slug}/checkout", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.Checkout)))
+		mux.Handle("POST /api/v1/orders/{id}/confirm-payment", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ConfirmPayment)))
+		mux.Handle("GET /api/v1/me/orders", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListMyOrders)))
+		mux.Handle("GET /api/v1/me/entitlements", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListMyEntitlements)))
+		mux.Handle("GET /api/v1/entitlements/{id}/delivery", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.GetDelivery)))
 		mux.Handle("GET /api/v1/uploads/avatars/", http.StripPrefix("/api/v1/uploads/avatars/", http.FileServer(http.Dir(configured.auth.AvatarUploadDir))))
 	}
 

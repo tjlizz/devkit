@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BuyButton } from "@/components/buy-button";
 import { CheckIcon, ShieldIcon } from "@/components/icons";
 import { formatCurrency } from "@/lib/format";
 import type { Product } from "@/types";
@@ -41,12 +42,7 @@ export function PricingCard({ product }: { product: Product }) {
                     ))}
                   </ul>
                 ) : null}
-                <Link
-                  href="#purchase"
-                  className="mt-4 flex h-10 w-full items-center justify-center rounded-lg bg-zinc-950 text-xs font-semibold text-white transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
-                >
-                  {plan.priceCents === 0 ? "Get it free" : "Buy now"}
-                </Link>
+                <BuyButton appSlug={product.slug} plan={plan} />
               </div>
             ))}
           </div>
