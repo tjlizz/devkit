@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useAuth, type Delivery, type Entitlement, type Order } from "@/lib/auth-context"
-import { formatCurrency, formatDate } from "@/lib/format"
+import { formatBytes, formatCurrency, formatDate } from "@/lib/format"
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ""
 
 function AuthGate({
   children,
@@ -173,11 +175,41 @@ function PurchasesContent() {
                   </div>
 
                   {delivery ? (
-                    <div className="mt-4 space-y-2 rounded-xl bg-zinc-50 p-4 text-sm dark:bg-white/5">
+                    <div className="mt-4 space-y-3 rounded-xl bg-zinc-50 p-4 text-sm dark:bg-white/5">
                       <p className="text-xs text-zinc-500">
                         Access token expires {formatDate(delivery.expiresAt)}
                       </p>
-                      <div className="flex flex-wrap gap-2">
+                      {delivery.artifacts && delivery.artifacts.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                            Downloads
+                          </p>
+                          <ul className="space-y-2">
+                            {delivery.artifacts.map((artifact) => (
+                              <li
+                                key={artifact.id}
+                                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-zinc-900"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium text-zinc-800 dark:text-zinc-200">
+                                    {artifact.fileName}
+                                  </p>
+                                  <p className="text-xs text-zinc-400">
+                                    {formatBytes(artifact.sizeBytes)}
+                                  </p>
+                                </div>
+                                <a
+                                  href={`${API_BASE}/api/v1/artifacts/${artifact.id}/download?token=${delivery.deliveryToken}`}
+                                  className="rounded-lg bg-zinc-950 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                                >
+                                  Download
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2 pt-1">
                         {delivery.sourceUrl ? (
                           <a
                             href={delivery.sourceUrl}

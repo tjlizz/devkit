@@ -1482,6 +1482,7 @@ func newAuthTestApp(t *testing.T) (*sql.DB, http.Handler) {
 	cfg := config.Default().Auth
 	cfg.JWTSecret = testJWTSecret
 	cfg.AvatarUploadDir = t.TempDir()
+	cfg.ArtifactUploadDir = t.TempDir()
 	return db, New(logger, WithAuth(db, cfg))
 }
 

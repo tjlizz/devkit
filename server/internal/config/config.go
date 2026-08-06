@@ -17,6 +17,7 @@ const (
 	defaultSMTPPort      = 587
 	defaultActivationURL = "http://localhost:8080"
 	defaultAvatarDir     = "./uploads/avatars"
+	defaultArtifactDir   = "./uploads/artifacts"
 )
 
 type Config struct {
@@ -38,6 +39,7 @@ type AuthConfig struct {
 	JWTExpiryHours    int        `yaml:"jwt_expiry_hours"`
 	ActivationBaseURL string     `yaml:"activation_base_url"`
 	AvatarUploadDir   string     `yaml:"avatar_upload_dir"`
+	ArtifactUploadDir string     `yaml:"artifact_upload_dir"`
 	SMTP              SMTPConfig `yaml:"smtp"`
 }
 
@@ -62,6 +64,7 @@ func Default() Config {
 			JWTExpiryHours:    defaultJWTExpiry,
 			ActivationBaseURL: defaultActivationURL,
 			AvatarUploadDir:   defaultAvatarDir,
+			ArtifactUploadDir: defaultArtifactDir,
 			SMTP: SMTPConfig{
 				Port: defaultSMTPPort,
 			},
@@ -108,6 +111,9 @@ func Load(path string) (Config, error) {
 	if uploadDir := os.Getenv("DEVKIT_AVATAR_UPLOAD_DIR"); uploadDir != "" {
 		cfg.Auth.AvatarUploadDir = uploadDir
 	}
+	if uploadDir := os.Getenv("DEVKIT_ARTIFACT_UPLOAD_DIR"); uploadDir != "" {
+		cfg.Auth.ArtifactUploadDir = uploadDir
+	}
 	if host := os.Getenv("DEVKIT_SMTP_HOST"); host != "" {
 		cfg.Auth.SMTP.Host = host
 	}
@@ -152,6 +158,9 @@ func (c Config) Validate() error {
 	}
 	if c.Auth.AvatarUploadDir == "" {
 		return errors.New("auth avatar upload dir must not be empty")
+	}
+	if c.Auth.ArtifactUploadDir == "" {
+		return errors.New("auth artifact upload dir must not be empty")
 	}
 	if c.Auth.SMTP.Port < 1 || c.Auth.SMTP.Port > 65535 {
 		return fmt.Errorf("SMTP port must be between 1 and 65535: %d", c.Auth.SMTP.Port)

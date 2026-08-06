@@ -43,6 +43,9 @@ interface AuthContextValue {
   listMyOrders: () => Promise<Order[]>
   listMyEntitlements: () => Promise<Entitlement[]>
   getDelivery: (entitlementId: number) => Promise<Delivery>
+  listAppArtifacts: (appId: number) => Promise<AppArtifact[]>
+  uploadAppArtifact: (appId: number, file: File) => Promise<AppArtifact>
+  deleteAppArtifact: (appId: number, artifactId: number) => Promise<void>
 }
 
 export interface Order {
@@ -78,6 +81,16 @@ export interface Entitlement {
   updatedAt: string
 }
 
+export interface AppArtifact {
+  id: number
+  appId: number
+  fileName: string
+  sizeBytes: number
+  contentType: string
+  checksumSha256: string
+  createdAt: string
+}
+
 export interface Delivery {
   entitlementId: number
   appSlug: string
@@ -86,6 +99,7 @@ export interface Delivery {
   sourceUrl: string
   docsUrl: string
   demoUrl: string
+  artifacts: AppArtifact[]
   deliveryToken: string
   expiresAt: string
 }
@@ -481,6 +495,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (await res.json()) as Delivery
   }, [token])
 
+  const listAppArtifacts = useCallback(async (appId: number) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/developer/apps/${appId}/artifacts`, {
+      headers: { Authorization: `Bearer ${currentToken}` },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not list artifacts" }))
+      throw { status: res.status, message: body.error || "Could not list artifacts" }
+    }
+    const data = await res.json()
+    return data.artifacts as AppArtifact[]
+  }, [token])
+
+  const uploadAppArtifact = useCallback(async (appId: number, file: File) => {
+    const currentToken = token || getStoredToken()
+    const form = new FormData()
+    form.append("artifact", file)
+    const res = await fetch(`${API_BASE}/api/v1/developer/apps/${appId}/artifacts`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${currentToken}` },
+      body: form,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not upload artifact" }))
+      throw { status: res.status, message: body.error || "Could not upload artifact" }
+    }
+    const data = await res.json()
+    return data.artifact as AppArtifact
+  }, [token])
+
+  const deleteAppArtifact = useCallback(async (appId: number, artifactId: number) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/developer/apps/${appId}/artifacts/${artifactId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${currentToken}` },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not delete artifact" }))
+      throw { status: res.status, message: body.error || "Could not delete artifact" }
+    }
+  }, [token])
+
   return (
     <AuthContext.Provider
       value={{
@@ -508,6 +564,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         listMyOrders,
         listMyEntitlements,
         getDelivery,
+        listAppArtifacts,
+        uploadAppArtifact,
+        deleteAppArtifact,
       }}
     >
       {children}

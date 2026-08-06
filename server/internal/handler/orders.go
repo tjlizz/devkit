@@ -345,6 +345,18 @@ func (h *Auth) GetDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	artifacts, err := h.listArtifactsRaw(r, app.ID)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "list artifacts for delivery", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read artifacts")
+		return
+	}
+
+	publicArtifacts := make([]appArtifact, 0, len(artifacts))
+	for _, meta := range artifacts {
+		publicArtifacts = append(publicArtifacts, toAppArtifact(meta))
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entitlementId": ent.ID,
 		"appSlug":       app.Slug,
@@ -353,6 +365,7 @@ func (h *Auth) GetDelivery(w http.ResponseWriter, r *http.Request) {
 		"sourceUrl":     app.SourceURL,
 		"docsUrl":       app.DocsURL,
 		"demoUrl":       app.DemoURL,
+		"artifacts":     publicArtifacts,
 		"deliveryToken": token,
 		"expiresAt":     expiresAt.Format(time.RFC3339),
 	})

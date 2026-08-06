@@ -65,6 +65,10 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.Handle("GET /api/v1/me/orders", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListMyOrders)))
 		mux.Handle("GET /api/v1/me/entitlements", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListMyEntitlements)))
 		mux.Handle("GET /api/v1/entitlements/{id}/delivery", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.GetDelivery)))
+		mux.Handle("GET /api/v1/developer/apps/{id}/artifacts", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListAppArtifacts)))
+		mux.Handle("POST /api/v1/developer/apps/{id}/artifacts", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.UploadAppArtifact)))
+		mux.Handle("DELETE /api/v1/developer/apps/{id}/artifacts/{artifactId}", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.DeleteAppArtifact)))
+		mux.HandleFunc("GET /api/v1/artifacts/{artifactId}/download", authHandler.DownloadAppArtifact)
 		mux.Handle("GET /api/v1/uploads/avatars/", http.StripPrefix("/api/v1/uploads/avatars/", http.FileServer(http.Dir(configured.auth.AvatarUploadDir))))
 	}
 

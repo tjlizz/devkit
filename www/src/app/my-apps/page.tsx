@@ -209,6 +209,12 @@ function MyAppsContent() {
                     Edit
                   </Link>
                 ) : null}
+                <Link
+                  href={`/my-apps/${app.id}/deliverables`}
+                  className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-100 dark:border-white/10 dark:hover:bg-white/5"
+                >
+                  Deliverables
+                </Link>
                 {app.status === "approved" ? (
                   <button
                     onClick={() => handleDelist(app)}

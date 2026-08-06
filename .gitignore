@@ -44,6 +44,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Runtime uploads (avatars, artifacts)
+uploads/
+
 # Editors
 .idea/
 .vscode/
