@@ -50,6 +50,7 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.Handle("POST /api/v1/admin/developer-applications/{id}/reject", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.RejectDeveloperApplication)))
 		mux.Handle("POST /api/v1/apps", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.CreateApp)))
 		mux.Handle("GET /api/v1/developer/apps", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListDeveloperApps)))
+		mux.Handle("GET /api/v1/developer/sales", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListDeveloperSales)))
 		mux.Handle("GET /api/v1/developer/apps/{id}", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.GetDeveloperApp)))
 		mux.Handle("PUT /api/v1/developer/apps/{id}", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.UpdateDeveloperApp)))
 		mux.Handle("POST /api/v1/developer/apps/{id}/delist", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.DelistDeveloperApp)))

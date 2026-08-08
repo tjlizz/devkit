@@ -36,6 +36,7 @@ interface AuthContextValue {
   submitApp: (payload: AppPublishPayload) => Promise<void>
   listDeveloperApps: () => Promise<DeveloperApp[]>
   getDeveloperApp: (id: number) => Promise<DeveloperApp>
+  listDeveloperSales: () => Promise<{ sales: DeveloperSale[]; summary: DeveloperSalesSummary }>
   updateDeveloperApp: (id: number, payload: AppPublishPayload) => Promise<DeveloperApp>
   delistDeveloperApp: (id: number) => Promise<DeveloperApp>
   checkoutApp: (slug: string, planId?: number) => Promise<Order>
@@ -143,6 +144,27 @@ export interface DeveloperApp extends AppPublishPayload {
   publishedAt?: string
   createdAt: string
   updatedAt: string
+}
+
+export interface DeveloperSale {
+  orderId: number
+  appId: number
+  appSlug: string
+  appName: string
+  planName: string
+  buyerEmail: string
+  priceCents: number
+  currency: string
+  provider: string
+  paidAt?: string
+  createdAt: string
+}
+
+export interface DeveloperSalesSummary {
+  totalOrders: number
+  totalRevenueCents: number
+  uniqueBuyers: number
+  appsSold: number
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -383,6 +405,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.apps as DeveloperApp[]
   }, [token])
 
+  const listDeveloperSales = useCallback(async () => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/developer/sales`, {
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not load sales" }))
+      throw { status: res.status, message: body.error || "Could not load sales" }
+    }
+    const data = await res.json()
+    return {
+      sales: data.sales as DeveloperSale[],
+      summary: data.summary as DeveloperSalesSummary,
+    }
+  }, [token])
+
   const updateDeveloperApp = useCallback(async (id: number, payload: AppPublishPayload) => {
     const currentToken = token || getStoredToken()
     const res = await fetch(`${API_BASE}/api/v1/developer/apps/${id}`, {
@@ -559,6 +599,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         getDeveloperApp,
         updateDeveloperApp,
         delistDeveloperApp,
+        listDeveloperSales,
         checkoutApp,
         confirmPayment,
         listMyOrders,

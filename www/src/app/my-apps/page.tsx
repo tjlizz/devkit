@@ -122,6 +122,12 @@ function MyAppsContent() {
         >
           Publish new app
         </Link>
+        <Link
+          href="/my-apps/sales"
+          className="inline-flex rounded-lg border border-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/5"
+        >
+          Sales
+        </Link>
       </div>
 
       {notice ? (

@@ -282,6 +282,110 @@ func (h *Auth) ListMyOrders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]order{"orders": orders})
 }
 
+// developerSale is a single paid order belonging to one of the developer's apps.
+type developerSale struct {
+	OrderID    int64  `json:"orderId"`
+	AppID      int64  `json:"appId"`
+	AppSlug    string `json:"appSlug"`
+	AppName    string `json:"appName"`
+	PlanName   string `json:"planName"`
+	BuyerEmail string `json:"buyerEmail"`
+	PriceCents int64  `json:"priceCents"`
+	Currency   string `json:"currency"`
+	Provider   string `json:"provider"`
+	PaidAt     string `json:"paidAt,omitempty"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// developerSalesSummary aggregates the developer's paid orders.
+type developerSalesSummary struct {
+	TotalOrders       int64 `json:"totalOrders"`
+	TotalRevenueCents int64 `json:"totalRevenueCents"`
+	UniqueBuyers      int64 `json:"uniqueBuyers"`
+	AppsSold          int64 `json:"appsSold"`
+}
+
+// ListDeveloperSales returns the authenticated developer's paid orders across
+// all of their apps, newest first, plus a summary of paid orders, revenue,
+// unique buyers, and apps sold.
+func (h *Auth) ListDeveloperSales(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	developerID, ok := h.requireDeveloperID(w, r, userID)
+	if !ok {
+		return
+	}
+
+	limit, offset := pagination(r)
+	rows, err := h.db.QueryContext(
+		r.Context(),
+		`SELECT o.id, o.app_id, a.slug, a.name, COALESCE(o.plan_name, ''), u.email,
+		        o.price_cents, o.currency, o.provider, o.paid_at, o.created_at
+		 FROM orders o
+		 JOIN apps a ON a.id = o.app_id
+		 JOIN users u ON u.id = o.buyer_id
+		 WHERE a.developer_id = ? AND o.status = 'paid'
+		 ORDER BY o.id DESC LIMIT ? OFFSET ?`,
+		developerID, limit, offset,
+	)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "list developer sales", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not list sales")
+		return
+	}
+	defer rows.Close()
+
+	sales := make([]developerSale, 0)
+	for rows.Next() {
+		var sale developerSale
+		var paidAt sql.NullTime
+		var createdAt time.Time
+		if err := rows.Scan(
+			&sale.OrderID, &sale.AppID, &sale.AppSlug, &sale.AppName, &sale.PlanName,
+			&sale.BuyerEmail, &sale.PriceCents, &sale.Currency, &sale.Provider,
+			&paidAt, &createdAt,
+		); err != nil {
+			h.logger.ErrorContext(r.Context(), "scan developer sale", "error", err)
+			writeError(w, http.StatusInternalServerError, "could not list sales")
+			return
+		}
+		if paidAt.Valid {
+			sale.PaidAt = paidAt.Time.UTC().Format(time.RFC3339)
+		}
+		sale.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		sales = append(sales, sale)
+	}
+	if err := rows.Err(); err != nil {
+		h.logger.ErrorContext(r.Context(), "iterate developer sales", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not list sales")
+		return
+	}
+
+	var summary developerSalesSummary
+	if err := h.db.QueryRowContext(
+		r.Context(),
+		`SELECT COUNT(*), COALESCE(SUM(o.price_cents), 0), COUNT(DISTINCT o.buyer_id), COUNT(DISTINCT o.app_id)
+		 FROM orders o
+		 JOIN apps a ON a.id = o.app_id
+		 WHERE a.developer_id = ? AND o.status = 'paid'`,
+		developerID,
+	).Scan(&summary.TotalOrders, &summary.TotalRevenueCents, &summary.UniqueBuyers, &summary.AppsSold); err != nil {
+		h.logger.ErrorContext(r.Context(), "summarize developer sales", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not summarize sales")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sales":   sales,
+		"summary": summary,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
 // ListMyEntitlements returns the authenticated buyer's entitlements.
 func (h *Auth) ListMyEntitlements(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := middleware.FromContext(r.Context())
