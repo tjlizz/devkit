@@ -41,6 +41,7 @@ interface AuthContextValue {
   delistDeveloperApp: (id: number) => Promise<DeveloperApp>
   checkoutApp: (slug: string, planId?: number) => Promise<Order>
   confirmPayment: (orderId: number) => Promise<{ order: Order; entitlement: Entitlement }>
+  refundOrder: (orderId: number) => Promise<Order>
   listMyOrders: () => Promise<Order[]>
   listMyEntitlements: () => Promise<Entitlement[]>
   getDelivery: (entitlementId: number) => Promise<Delivery>
@@ -491,6 +492,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data as { order: Order; entitlement: Entitlement }
   }, [token])
 
+  const refundOrder = useCallback(async (orderId: number) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/orders/${orderId}/refund`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Refund failed" }))
+      throw { status: res.status, message: body.error || "Refund failed" }
+    }
+    const data = await res.json()
+    return data.order as Order
+  }, [token])
+
   const listMyOrders = useCallback(async () => {
     const currentToken = token || getStoredToken()
     const res = await fetch(`${API_BASE}/api/v1/me/orders`, {
@@ -602,6 +619,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         listDeveloperSales,
         checkoutApp,
         confirmPayment,
+        refundOrder,
         listMyOrders,
         listMyEntitlements,
         getDelivery,

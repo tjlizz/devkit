@@ -57,7 +57,7 @@ export default function PurchasesPage() {
 }
 
 function PurchasesContent() {
-  const { listMyOrders, listMyEntitlements, getDelivery } = useAuth()
+  const { listMyOrders, listMyEntitlements, getDelivery, refundOrder } = useAuth()
   const searchParams = useSearchParams()
   const [orders, setOrders] = useState<Order[] | null>(null)
   const [entitlements, setEntitlements] = useState<Entitlement[] | null>(null)
@@ -65,6 +65,7 @@ function PurchasesContent() {
   const [notice, setNotice] = useState(searchParams.get("notice") === "paid" ? "Payment confirmed — your entitlement is active." : "")
   const [deliveryByEnt, setDeliveryByEnt] = useState<Record<number, Delivery>>({})
   const [loadingDelivery, setLoadingDelivery] = useState<number | null>(null)
+  const [refundingId, setRefundingId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setError("")
@@ -93,6 +94,24 @@ function PurchasesContent() {
       setError(err.message || "Could not get delivery")
     } finally {
       setLoadingDelivery(null)
+    }
+  }
+
+  async function handleRefund(orderId: number) {
+    if (!window.confirm("Request a refund for this order? Your access to the app will be revoked immediately.")) {
+      return
+    }
+    setRefundingId(orderId)
+    setError("")
+    setNotice("")
+    try {
+      await refundOrder(orderId)
+      setNotice("Refund processed. Your access has been revoked.")
+      await load()
+    } catch (err: any) {
+      setError(err.message || "Could not request refund")
+    } finally {
+      setRefundingId(null)
     }
   }
 
@@ -275,11 +294,23 @@ function PurchasesContent() {
                   className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${
                     order.status === "paid"
                       ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950/50 dark:text-emerald-300"
-                      : "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-950/50 dark:text-amber-300"
+                      : order.status === "refunded"
+                        ? "bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-white/10 dark:text-zinc-300"
+                        : "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-950/50 dark:text-amber-300"
                   }`}
                 >
                   {orderStatusLabel[order.status] ?? order.status}
                 </span>
+                {order.status === "paid" ? (
+                  <button
+                    type="button"
+                    onClick={() => handleRefund(order.id)}
+                    disabled={refundingId === order.id}
+                    className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5"
+                  >
+                    {refundingId === order.id ? "Refunding..." : "Request refund"}
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>

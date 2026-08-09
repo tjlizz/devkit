@@ -266,6 +266,104 @@ func (h *Auth) ConfirmPayment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"order": updated, "entitlement": ent})
 }
 
+// RefundOrder transitions a buyer's paid order to refunded and revokes the
+// matching entitlement in a single transaction. It is idempotent: refunding an
+// already-refunded order returns the existing state without error. Only the
+// buyer who owns the order may refund it, and only while it is paid.
+func (h *Auth) RefundOrder(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	orderID, ok := orderIDFromPath(w, r)
+	if !ok {
+		return
+	}
+
+	current, err := h.readOrder(r, orderID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "order not found")
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read order for refund", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read order")
+		return
+	}
+	if current.BuyerID != userID {
+		writeError(w, http.StatusForbidden, "order does not belong to you")
+		return
+	}
+
+	// Idempotent: an already-refunded order returns the current state as-is.
+	if current.Status == "refunded" {
+		writeJSON(w, http.StatusOK, map[string]any{"order": current})
+		return
+	}
+	if current.Status != "paid" {
+		writeError(w, http.StatusConflict, "only paid orders can be refunded")
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "begin refund transaction", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not refund order")
+		return
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(
+		r.Context(),
+		`UPDATE orders
+		 SET status = 'refunded', updated_at = ?
+		 WHERE id = ? AND status = 'paid'`,
+		now, orderID,
+	)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "update order to refunded", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not refund order")
+		return
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read refund update result", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not refund order")
+		return
+	}
+	if affected != 1 {
+		writeError(w, http.StatusConflict, "only paid orders can be refunded")
+		return
+	}
+
+	if _, err := tx.ExecContext(
+		r.Context(),
+		`UPDATE entitlements SET status = 'revoked', updated_at = ? WHERE order_id = ?`,
+		now, orderID,
+	); err != nil {
+		h.logger.ErrorContext(r.Context(), "revoke entitlement", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not revoke entitlement")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), "commit refund transaction", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not refund order")
+		return
+	}
+
+	updated, err := h.readOrder(r, orderID)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "read refunded order", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read order")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"order": updated})
+}
+
 // ListMyOrders returns the authenticated buyer's orders, newest first.
 func (h *Auth) ListMyOrders(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := middleware.FromContext(r.Context())
