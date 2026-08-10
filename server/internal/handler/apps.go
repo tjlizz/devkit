@@ -572,6 +572,39 @@ func (h *Auth) GetMarketplaceApp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]marketplaceApp{"app": app})
 }
 
+// ListMyFavorites returns the authenticated user's favorited marketplace apps,
+// newest favorited first, using the same public marketplace shape as the
+// catalog so the frontend can render favorite cards directly.
+func (h *Auth) ListMyFavorites(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := middleware.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	apps, err := h.queryApps(
+		r,
+		`SELECT a.id, a.developer_id, d.display_name, '', a.name, a.slug, a.tagline,
+		        a.description, a.category, a.price_cents, a.currency, a.icon_url, a.cover_image_url,
+		        a.demo_url, a.docs_url, a.source_url, a.support_url, a.tags, a.version,
+		        a.release_notes, a.status, a.review_note, a.reviewed_by, a.reviewed_at,
+		        a.published_at, a.created_at, a.updated_at
+		 FROM apps a
+		 JOIN developers d ON d.id = a.developer_id
+		 JOIN app_favorites f ON f.app_id = a.id
+		 WHERE a.status = 'approved' AND f.user_id = ?
+		 ORDER BY f.created_at DESC, a.id DESC`,
+		false,
+		userID,
+	)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "list my favorites", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not list favorites")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string][]marketplaceApp{"apps": apps})
+}
+
 func (h *Auth) GetMarketplaceFavorite(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := middleware.FromContext(r.Context())
 	if !ok {

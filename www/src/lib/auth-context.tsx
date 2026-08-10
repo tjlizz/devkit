@@ -43,6 +43,7 @@ interface AuthContextValue {
   confirmPayment: (orderId: number) => Promise<{ order: Order; entitlement: Entitlement }>
   refundOrder: (orderId: number) => Promise<Order>
   listMyOrders: () => Promise<Order[]>
+  listMyFavorites: () => Promise<FavoriteApp[]>
   listMyEntitlements: () => Promise<Entitlement[]>
   getDelivery: (entitlementId: number) => Promise<Delivery>
   listAppArtifacts: (appId: number) => Promise<AppArtifact[]>
@@ -79,6 +80,31 @@ export interface Entitlement {
   orderId: number
   status: "active" | "revoked"
   grantedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FavoriteApp {
+  id: number
+  developerId: number
+  developerName: string
+  name: string
+  slug: string
+  tagline: string
+  description: string
+  category: string
+  priceCents: number
+  currency: string
+  iconUrl: string
+  coverImageUrl: string
+  demoUrl: string
+  docsUrl: string
+  sourceUrl: string
+  supportUrl: string
+  tags: string[]
+  version: string
+  releaseNotes: string
+  favoriteCount: number
   createdAt: string
   updatedAt: string
 }
@@ -523,6 +549,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.orders as Order[]
   }, [token])
 
+  const listMyFavorites = useCallback(async () => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/me/favorites`, {
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+      },
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not load favorites" }))
+      throw { status: res.status, message: body.error || "Could not load favorites" }
+    }
+    const data = await res.json()
+    return data.apps as FavoriteApp[]
+  }, [token])
+
   const listMyEntitlements = useCallback(async () => {
     const currentToken = token || getStoredToken()
     const res = await fetch(`${API_BASE}/api/v1/me/entitlements`, {
@@ -621,6 +662,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         confirmPayment,
         refundOrder,
         listMyOrders,
+        listMyFavorites,
         listMyEntitlements,
         getDelivery,
         listAppArtifacts,

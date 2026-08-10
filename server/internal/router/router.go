@@ -65,6 +65,7 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.Handle("POST /api/v1/orders/{id}/confirm-payment", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ConfirmPayment)))
 		mux.Handle("POST /api/v1/orders/{id}/refund", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.RefundOrder)))
 		mux.Handle("GET /api/v1/me/orders", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListMyOrders)))
+		mux.Handle("GET /api/v1/me/favorites", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListMyFavorites)))
 		mux.Handle("GET /api/v1/me/entitlements", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListMyEntitlements)))
 		mux.Handle("GET /api/v1/entitlements/{id}/delivery", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.GetDelivery)))
 		mux.Handle("GET /api/v1/developer/apps/{id}/artifacts", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.ListAppArtifacts)))
