@@ -97,6 +97,8 @@ type marketplaceApp struct {
 	CreatedAt      string    `json:"createdAt"`
 	UpdatedAt      string    `json:"updatedAt"`
 	FavoriteCount  int       `json:"favoriteCount"`
+	Rating         float64   `json:"rating"`
+	ReviewCount    int       `json:"reviewCount"`
 	Plans          []appPlan `json:"plans"`
 }
 
@@ -965,6 +967,9 @@ func (h *Auth) queryApps(r *http.Request, query string, _ bool, args ...any) ([]
 		if err := h.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM app_favorites WHERE app_id = ?", apps[i].ID).Scan(&apps[i].FavoriteCount); err != nil {
 			return nil, err
 		}
+		if err := h.loadReviewAggregates(r, apps[i].ID, &apps[i].Rating, &apps[i].ReviewCount); err != nil {
+			return nil, err
+		}
 	}
 	return apps, nil
 }
@@ -980,6 +985,9 @@ func (h *Auth) scanAppWithPlans(r *http.Request, scanner appScanner) (marketplac
 	}
 	app.Plans = plans
 	if err := h.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM app_favorites WHERE app_id = ?", app.ID).Scan(&app.FavoriteCount); err != nil {
+		return marketplaceApp{}, err
+	}
+	if err := h.loadReviewAggregates(r, app.ID, &app.Rating, &app.ReviewCount); err != nil {
 		return marketplaceApp{}, err
 	}
 	return app, nil

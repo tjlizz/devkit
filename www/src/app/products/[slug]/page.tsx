@@ -12,6 +12,7 @@ import { FavoriteButton } from "@/components/favorite-button";
 import { PricingCard } from "@/components/pricing-card";
 import ProductCard from "@/components/ProductCard";
 import { ProductScreenshots } from "@/components/product-screenshots";
+import { ReviewsSection } from "@/components/reviews-section";
 import { ShareButton } from "@/components/share-button";
 import { VerifiedBadge } from "@/components/ui/verified-badge";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -396,6 +397,8 @@ export default async function ProductPage({ params }: ProductPageProps) {
               <ArrowRightIcon className="size-4" />
             </Link>
           </section>
+
+          <ReviewsSection slug={product.slug} />
         </div>
 
         <div id="purchase" className="lg:sticky lg:top-24 lg:self-start">

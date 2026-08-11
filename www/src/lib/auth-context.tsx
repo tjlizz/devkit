@@ -46,6 +46,10 @@ interface AuthContextValue {
   listMyFavorites: () => Promise<FavoriteApp[]>
   listMyEntitlements: () => Promise<Entitlement[]>
   getDelivery: (entitlementId: number) => Promise<Delivery>
+  listAppReviews: (slug: string) => Promise<Review[]>
+  getMyReview: (slug: string) => Promise<Review | null>
+  saveReview: (slug: string, rating: number, comment: string) => Promise<Review>
+  deleteReview: (slug: string) => Promise<void>
   listAppArtifacts: (appId: number) => Promise<AppArtifact[]>
   uploadAppArtifact: (appId: number, file: File) => Promise<AppArtifact>
   deleteAppArtifact: (appId: number, artifactId: number) => Promise<void>
@@ -80,6 +84,19 @@ export interface Entitlement {
   orderId: number
   status: "active" | "revoked"
   grantedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Review {
+  id: number
+  appId: number
+  appSlug: string
+  buyerId: number
+  buyerName: string
+  rating: number
+  comment: string
+  verifiedPurchase: boolean
   createdAt: string
   updatedAt: string
 }
@@ -564,6 +581,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.apps as FavoriteApp[]
   }, [token])
 
+  // Reviews -----------------------------------------------------------------
+  const listAppReviews = useCallback(async (slug: string) => {
+    const res = await fetch(`${API_BASE}/api/v1/marketplace/apps/${encodeURIComponent(slug)}/reviews`, {
+      cache: "no-store",
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not load reviews" }))
+      throw { status: res.status, message: body.error || "Could not load reviews" }
+    }
+    const data = await res.json()
+    return (data.reviews as Review[]) || []
+  }, [])
+
+  const getMyReview = useCallback(async (slug: string) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/marketplace/apps/${encodeURIComponent(slug)}/reviews/me`, {
+      headers: { Authorization: `Bearer ${currentToken}` },
+    })
+    if (res.status === 404) return null
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not load your review" }))
+      throw { status: res.status, message: body.error || "Could not load your review" }
+    }
+    const data = await res.json()
+    return data.review as Review
+  }, [token])
+
+  const saveReview = useCallback(async (slug: string, rating: number, comment: string) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/marketplace/apps/${encodeURIComponent(slug)}/reviews`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${currentToken}`,
+      },
+      body: JSON.stringify({ rating, comment }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: "Could not save review" }))
+      throw { status: res.status, message: body.error || "Could not save review" }
+    }
+    const data = await res.json()
+    return data.review as Review
+  }, [token])
+
+  const deleteReview = useCallback(async (slug: string) => {
+    const currentToken = token || getStoredToken()
+    const res = await fetch(`${API_BASE}/api/v1/marketplace/apps/${encodeURIComponent(slug)}/reviews/me`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${currentToken}` },
+    })
+    if (!res.ok && res.status !== 404) {
+      const body = await res.json().catch(() => ({ error: "Could not delete review" }))
+      throw { status: res.status, message: body.error || "Could not delete review" }
+    }
+  }, [token])
+
   const listMyEntitlements = useCallback(async () => {
     const currentToken = token || getStoredToken()
     const res = await fetch(`${API_BASE}/api/v1/me/entitlements`, {
@@ -665,6 +739,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         listMyFavorites,
         listMyEntitlements,
         getDelivery,
+        listAppReviews,
+        getMyReview,
+        saveReview,
+        deleteReview,
         listAppArtifacts,
         uploadAppArtifact,
         deleteAppArtifact,

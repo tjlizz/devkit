@@ -31,6 +31,8 @@ interface ApiApp {
   createdAt: string;
   updatedAt: string;
   favoriteCount: number;
+  rating: number;
+  reviewCount: number;
   plans: AppPlan[];
 }
 
@@ -80,8 +82,8 @@ function toProduct(app: ApiApp): Product {
     updatedAt: app.updatedAt,
     sales: 0,
     favorites: app.favoriteCount,
-    rating: 5,
-    reviewCount: 0,
+    rating: app.rating || 0,
+    reviewCount: app.reviewCount || 0,
     featured: true,
     license: "Commercial",
     delivery: app.sourceUrl ? "Source access" : "Developer-provided delivery",
