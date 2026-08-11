@@ -137,3 +137,60 @@ export async function getMarketplaceProduct(slug: string) {
     developer: product ? developerByUsername[product.authorUsername] : undefined,
   };
 }
+
+interface ApiDeveloper {
+  id: number;
+  username: string;
+  name: string;
+  avatarUrl: string;
+  bio: string;
+  location: string;
+  website: string;
+  email: string;
+  joinedAt: string;
+  publishedCount: number;
+  apps: ApiApp[];
+}
+
+function toDeveloper(api: ApiDeveloper): Developer {
+  return {
+    id: `developer_${api.id}`,
+    name: api.name,
+    username: api.username,
+    avatar: api.avatarUrl || "/images/avatars/noah.svg",
+    bio: api.bio || "Verified DevKit marketplace developer.",
+    longBio: api.bio || "A verified DevKit developer publishing reviewed software for modern teams.",
+    location: api.location,
+    website: api.website,
+    socialLinks: [],
+    verified: true,
+    joinedAt: api.joinedAt,
+    publishedCount: api.publishedCount,
+    followers: 0,
+    totalSales: api.apps.length,
+    revenue: 0,
+    specialties: [],
+  };
+}
+
+export async function getMarketplaceDeveloper(username: string) {
+  try {
+    const res = await fetch(apiUrl(`/api/v1/developers/${encodeURIComponent(username)}`), {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { developer: ApiDeveloper };
+      return {
+        developer: toDeveloper(data.developer),
+        apps: data.developer.apps.map(toProduct),
+      };
+    }
+  } catch {
+  }
+  const mock = developerByUsername[username];
+  if (!mock) return { developer: undefined, apps: [] };
+  return {
+    developer: mock,
+    apps: products.filter((p) => p.authorUsername === mock.username),
+  };
+}

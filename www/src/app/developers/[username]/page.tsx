@@ -11,26 +11,22 @@ import {
 } from "@/components/icons";
 import ProductCard from "@/components/ProductCard";
 import { ShareButton } from "@/components/share-button";
-import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 import { JsonLd } from "@/lib/json-ld";
 import { createMetadata } from "@/lib/metadata";
-import { developerByUsername, developers } from "@/lib/mock/developers";
-import { products } from "@/lib/mock/products";
+import { developerByUsername } from "@/lib/mock/developers";
+import { getMarketplaceDeveloper } from "@/lib/marketplace";
 import { absoluteUrl, siteConfig } from "@/lib/site";
 
 interface DeveloperPageProps {
   params: Promise<{ username: string }>;
 }
 
-export function generateStaticParams() {
-  return developers.map((developer) => ({ username: developer.username }));
-}
-
 export async function generateMetadata({
   params,
 }: DeveloperPageProps): Promise<Metadata> {
   const { username } = await params;
-  const developer = developerByUsername[username];
+  const { developer } = await getMarketplaceDeveloper(username);
 
   if (!developer) {
     return createMetadata({
@@ -41,29 +37,32 @@ export async function generateMetadata({
     });
   }
 
+  const specialties = developer.specialties.length ? developer.specialties : [];
   return createMetadata({
     title: `${developer.name} (@${developer.username}) — Developer Profile`,
     description: developer.bio,
     path: `/developers/${developer.username}`,
-    keywords: [
-      developer.name,
-      "independent developer",
-      ...developer.specialties,
-      "software maker",
-    ],
+    keywords: [developer.name, "independent developer", ...specialties, "software maker"],
     image: developer.avatar,
   });
 }
 
 export default async function DeveloperPage({ params }: DeveloperPageProps) {
   const { username } = await params;
-  const developer = developerByUsername[username];
+  const { developer, apps } = await getMarketplaceDeveloper(username);
 
   if (!developer) notFound();
 
-  const developerProducts = products.filter(
-    (product) => product.authorUsername === developer.username,
-  );
+  const developerProducts = apps;
+  const websiteHost = developer.website
+    ? (() => {
+        try {
+          return new URL(developer.website).hostname;
+        } catch {
+          return developer.website;
+        }
+      })()
+    : null;
 
   const jsonLd = [
     {
@@ -74,10 +73,6 @@ export default async function DeveloperPage({ params }: DeveloperPageProps) {
       description: developer.bio,
       image: absoluteUrl(developer.avatar),
       url: absoluteUrl(`/developers/${developer.username}`),
-      sameAs: [
-        developer.website,
-        ...developer.socialLinks.map((link) => link.url),
-      ],
       jobTitle: "Independent Software Developer",
       knowsAbout: developer.specialties,
     },
@@ -150,24 +145,26 @@ export default async function DeveloperPage({ params }: DeveloperPageProps) {
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-2 text-sm font-medium text-zinc-500">
-                  @{developer.username}
-                </p>
+                <p className="mt-2 text-sm font-medium text-zinc-500">@{developer.username}</p>
                 <p className="mt-5 text-base leading-7 text-zinc-600 sm:text-lg dark:text-zinc-400">
                   {developer.bio}
                 </p>
                 <div className="mt-6 flex flex-wrap gap-x-5 gap-y-3 text-xs text-zinc-500">
-                  <span className="flex items-center gap-1.5">
-                    <MapPinIcon className="size-4" />
-                    {developer.location}
-                  </span>
-                  <Link
-                    href={developer.website}
-                    className="flex items-center gap-1.5 transition hover:text-zinc-950 dark:hover:text-white"
-                  >
-                    <GlobeIcon className="size-4" />
-                    {new URL(developer.website).hostname}
-                  </Link>
+                  {developer.location ? (
+                    <span className="flex items-center gap-1.5">
+                      <MapPinIcon className="size-4" />
+                      {developer.location}
+                    </span>
+                  ) : null}
+                  {websiteHost ? (
+                    <Link
+                      href={developer.website}
+                      className="flex items-center gap-1.5 transition hover:text-zinc-950 dark:hover:text-white"
+                    >
+                      <GlobeIcon className="size-4" />
+                      {websiteHost}
+                    </Link>
+                  ) : null}
                   <span className="flex items-center gap-1.5">
                     <CalendarIcon className="size-4" />
                     Joined {formatDate(developer.joinedAt)}
@@ -176,9 +173,6 @@ export default async function DeveloperPage({ params }: DeveloperPageProps) {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button className="inline-flex h-11 items-center rounded-full bg-zinc-950 px-5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200">
-                Follow developer
-              </button>
               <ShareButton
                 title={`${developer.name} on DevKit`}
                 text={developer.bio}
@@ -198,31 +192,32 @@ export default async function DeveloperPage({ params }: DeveloperPageProps) {
             <p className="mt-5 text-sm leading-7 text-zinc-600 dark:text-zinc-400">
               {developer.longBio}
             </p>
-            <div className="mt-7 flex flex-wrap gap-2">
-              {developer.specialties.map((specialty) => (
-                <span
-                  key={specialty}
-                  className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 dark:border-white/10 dark:text-zinc-400"
-                >
-                  {specialty}
-                </span>
-              ))}
-            </div>
-            <div className="mt-8 border-t border-zinc-200 pt-6 dark:border-white/10">
-              <p className="text-xs font-semibold text-zinc-950 dark:text-white">Elsewhere</p>
-              <div className="mt-3 space-y-2">
-                {developer.socialLinks.map((link) => (
-                  <Link
-                    key={link.label}
-                    href={link.url}
-                    className="flex items-center justify-between rounded-lg py-1 text-sm text-zinc-600 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white"
+            {developer.specialties.length ? (
+              <div className="mt-7 flex flex-wrap gap-2">
+                {developer.specialties.map((specialty) => (
+                  <span
+                    key={specialty}
+                    className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs text-zinc-600 dark:border-white/10 dark:text-zinc-400"
                   >
-                    {link.label}
-                    <ExternalLinkIcon className="size-3.5" />
-                  </Link>
+                    {specialty}
+                  </span>
                 ))}
               </div>
-            </div>
+            ) : null}
+            {developer.website ? (
+              <div className="mt-8 border-t border-zinc-200 pt-6 dark:border-white/10">
+                <p className="text-xs font-semibold text-zinc-950 dark:text-white">Elsewhere</p>
+                <div className="mt-3 space-y-2">
+                  <Link
+                    href={developer.website}
+                    className="flex items-center justify-between rounded-lg py-1 text-sm text-zinc-600 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white"
+                  >
+                    Website
+                    <ExternalLinkIcon className="size-3.5" />
+                  </Link>
+                </div>
+              </div>
+            ) : null}
           </div>
         </aside>
 
@@ -272,12 +267,19 @@ export default async function DeveloperPage({ params }: DeveloperPageProps) {
                   label: "Customer sales",
                 },
                 {
-                  value: formatNumber(developer.followers),
-                  label: "Followers",
+                  value: (() => {
+                    const weighted = developerProducts.reduce(
+                      (sum, p) => sum + p.rating * p.reviewCount,
+                      0,
+                    );
+                    const reviews = developerProducts.reduce((sum, p) => sum + p.reviewCount, 0);
+                    return reviews > 0 ? weighted.toFixed(1) : "—";
+                  })(),
+                  label: "Average rating",
                 },
                 {
-                  value: formatCurrency(developer.revenue, true),
-                  label: "Maker revenue",
+                  value: formatNumber(developerProducts.reduce((sum, p) => sum + p.sales, 0)),
+                  label: "Total purchases",
                 },
               ].map((stat, index) => (
                 <div

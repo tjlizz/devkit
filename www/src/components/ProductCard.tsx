@@ -11,7 +11,9 @@ export default function ProductCard({ product }: { product: Product }) {
   const category = categoryBySlug[product.category];
   const authorName = product.authorName ?? author?.name ?? "Verified developer";
   const authorAvatar = product.authorAvatar ?? author?.avatar ?? "/images/avatars/noah.svg";
-  const authorHref = author ? `/developers/${author.username}` : "/search?type=developers";
+  const authorHref = author
+    ? `/developers/${author.username}`
+    : `/developers/${product.authorUsername}`;
 
   return (
     <article className="group flex h-full flex-col">

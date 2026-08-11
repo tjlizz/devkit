@@ -59,6 +59,7 @@ func New(logger *slog.Logger, routerOptions ...Option) http.Handler {
 		mux.Handle("POST /api/v1/admin/apps/{id}/reject", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.RejectApp)))
 		mux.HandleFunc("GET /api/v1/marketplace/apps", authHandler.ListMarketplaceApps)
 		mux.HandleFunc("GET /api/v1/marketplace/apps/{slug}", authHandler.GetMarketplaceApp)
+		mux.HandleFunc("GET /api/v1/developers/{slug}", authHandler.GetDeveloperProfile)
 		mux.HandleFunc("GET /api/v1/marketplace/apps/{slug}/reviews", authHandler.ListAppReviews)
 		mux.Handle("GET /api/v1/marketplace/apps/{slug}/reviews/me", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.MyAppReview)))
 		mux.Handle("POST /api/v1/marketplace/apps/{slug}/reviews", middleware.JWT(configured.auth.JWTSecret)(http.HandlerFunc(authHandler.CreateOrUpdateReview)))

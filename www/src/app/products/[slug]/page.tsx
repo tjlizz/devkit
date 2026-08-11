@@ -69,7 +69,9 @@ export default async function ProductPage({ params }: ProductPageProps) {
   if (!product) notFound();
 
   const author = developer ?? developerByUsername[product.authorUsername];
-  const authorHref = developer ? "/search?type=developers" : `/developers/${author.username}`;
+  const authorHref = developer
+    ? `/developers/${developer.username}`
+    : `/developers/${product.authorUsername}`;
   const category = categoryBySlug[product.category];
   const related = products
     .filter((item) => item.slug !== product.slug && item.category === product.category)
